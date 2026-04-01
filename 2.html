@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>情緒大冒險 - 語音互動遊戲 (大電視修正版)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React, ReactDOM, Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            width: 100%; 
+            overflow: hidden; 
+            font-family: 'Noto Sans TC', sans-serif; 
+            background-color: #F0F4F8;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        #root {
+            height: 100%;
+            width: 100%;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const CHARACTERS = ["宇晴", "澄洋", "沄恩", "盧楷", "欽銓", "齊安", "意欣"];
+
+        const SCENARIOS = [
+            { id: 1, text: "今天我過生日，爸爸送我一個我最想要的樂高玩具。", answer: ["開心", "高興", "快樂", "興奮"], emoji: "🎁", hint: "收到禮物時，你覺得..." },
+            { id: 2, text: "我在公園玩的時候，最喜歡的小球掉進水溝裡拿不出來了。", answer: ["難過", "傷心", "想哭", "失望"], emoji: "💧", hint: "失去喜歡的東西時，你會感到..." },
+            { id: 3, text: "我有乖乖排隊，但是後面的小朋友突然用力推我，搶先玩溜滑梯。", answer: ["生氣", "憤怒", "不高興", "火大"], emoji: "💢", hint: "被不公平對待時，心裡會感覺..." },
+            { id: 4, text: "晚上的時候客廳燈關了，我一個人要走去廚房喝水，黑漆漆的。", answer: ["害怕", "擔心", "恐懼", "緊張"], emoji: "👻", hint: "在黑黑的地方，你會覺得..." },
+            { id: 5, text: "我不小心把同學的畫紙弄髒了，我跟他說對不起，他也原諒我了。", answer: ["安心", "放心", "平靜", "舒服"], emoji: "🤝", hint: "問題解決了，感覺鬆了一口氣，這叫..." },
+            { id: 6, text: "老師在全班同學面前稱讚我畫圖畫得非常棒，大家都在鼓掌。", answer: ["得意", "自豪", "開心", "驕傲"], emoji: "🎨", hint: "被大家稱讚時，心靈會覺得..." },
+            { id: 7, text: "明天要去動物園校外教學了，我現在整理背包，想到長頸鹿就睡不著。", answer: ["期待", "興奮", "開心", "雀躍"], emoji: "🦒", hint: "想到明天要做喜歡的事，這份心情是..." },
+            { id: 8, text: "我想跟同學一起玩積木，但他轉過身去不理我，還把積木收走了。", answer: ["寂寞", "難過", "委屈", "沮喪"], emoji: "🧱", hint: "想交朋友卻被拒絕時，心裡會覺得..." },
+            { id: 9, text: "媽媽說只要我吃完青菜就可以看卡通，結果她忘記了，直接叫我去洗澡。", answer: ["委屈", "失望", "生氣", "難過"], emoji: "📺", hint: "當約定好的事情沒達成，你會感到..." },
+            { id: 10, text: "我看見一個小朋友不小心跌倒了，他哭了起來，我也覺得心裡酸酸的。", answer: ["同情", "擔心", "難過", "關心"], emoji: "🩹", hint: "看到別人在難過，你產生的感覺是..." }
+        ];
+
+        const MicIcon = ({ size = 64 }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
+        );
+
+        function App() {
+            const [gameState, setGameState] = useState('CHARACTER_SELECT'); 
+            const [selectedCharacter, setSelectedCharacter] = useState(null);
+            const [currentLevelIdx, setCurrentLevelIdx] = useState(0);
+            const [isListening, setIsListening] = useState(false);
+            const [transcript, setTranscript] = useState('');
+            const [feedback, setFeedback] = useState({ type: '', message: '' });
+            const [completedLevels, setCompletedLevels] = useState([]);
+            
+            const recognitionRef = useRef(null);
+
+            useEffect(() => {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                    recognitionRef.current = new SpeechRecognition();
+                    recognitionRef.current.lang = 'zh-TW';
+                    recognitionRef.current.continuous = false;
+                    recognitionRef.current.interimResults = false;
+
+                    recognitionRef.current.onresult = (event) => {
+                        const result = event.results[0][0].transcript;
+                        setTranscript(result);
+                        checkAnswer(result);
+                    };
+
+                    recognitionRef.current.onerror = (event) => {
+                        setIsListening(false);
+                        setFeedback({ type: 'error', message: '請大聲一點再試一次喔！' });
+                    };
+
+                    recognitionRef.current.onend = () => {
+                        setIsListening(false);
+                    };
+                }
+            }, []);
+
+            const startListening = () => {
+                if (!recognitionRef.current) {
+                    alert('瀏覽器不支援語音功能');
+                    return;
+                }
+                setTranscript('');
+                setFeedback({ type: '', message: '' });
+                setIsListening(true);
+                recognitionRef.current.start();
+            };
+
+            const checkAnswer = (spokenText) => {
+                const currentScenario = SCENARIOS[currentLevelIdx];
+                const isCorrect = currentScenario.answer.some(ans => spokenText.includes(ans));
+
+                if (isCorrect) {
+                    setFeedback({ type: 'success', message: `太棒了！${selectedCharacter} 覺得很${spokenText}！` });
+                    if (!completedLevels.includes(currentLevelIdx)) {
+                        setCompletedLevels(prev => [...prev, currentLevelIdx]);
+                    }
+                    
+                    setTimeout(() => {
+                        setGameState('LEVEL_SELECT');
+                        setFeedback({ type: '', message: '' });
+                        setTranscript('');
+                    }, 2500);
+                } else {
+                    setFeedback({ type: 'error', message: `你說的是「${spokenText}」，再試試看？` });
+                }
+            };
+
+            if (completedLevels.length === SCENARIOS.length && gameState !== 'RESULT') {
+                setGameState('RESULT');
+            }
+
+            const renderCharacterSelect = () => (
+                <div className="h-full w-full flex flex-col items-center justify-center p-8 bg-gradient-to-b from-indigo-50 to-white">
+                    <h2 className="text-6xl font-black text-slate-800 mb-16 tracking-wider">選擇你的小夥伴</h2>
+                    <div className="grid grid-cols-4 gap-10 w-full max-w-7xl">
+                        {CHARACTERS.map(name => (
+                            <button
+                                key={name}
+                                onClick={() => {
+                                    setSelectedCharacter(name);
+                                    setGameState('LEVEL_SELECT');
+                                }}
+                                className="bg-white p-10 rounded-[3rem] shadow-xl hover:shadow-2xl hover:bg-indigo-50 border-8 border-transparent hover:border-indigo-400 transition-all flex flex-col items-center gap-6 group active:scale-95"
+                            >
+                                <div className="w-40 h-40 bg-indigo-100 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform text-indigo-600">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                                </div>
+                                <span className="text-4xl font-black text-gray-700">{name}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+
+            const renderLevelSelect = () => (
+                <div className="h-full w-full flex flex-col items-center p-12 bg-slate-50 overflow-y-auto no-scrollbar">
+                    <div className="flex items-center justify-between w-full max-w-7xl mb-12">
+                        <button onClick={() => setGameState('CHARACTER_SELECT')} className="text-4xl font-bold text-indigo-600 bg-white px-8 py-4 rounded-2xl shadow-md active:bg-indigo-100 transition-colors">
+                            ← 重選人物
+                        </button>
+                        <h2 className="text-5xl font-black text-slate-800 underline decoration-indigo-300 underline-offset-8">你好，{selectedCharacter}！請選一關</h2>
+                        <div className="w-24"></div>
+                    </div>
+                    
+                    <div className="grid grid-cols-5 gap-8 w-full max-w-7xl">
+                        {SCENARIOS.map((s, idx) => (
+                            <button
+                                key={s.id}
+                                onClick={() => {
+                                    setCurrentLevelIdx(idx);
+                                    setGameState('PLAYING');
+                                    setFeedback({ type: '', message: '' });
+                                    setTranscript('');
+                                }}
+                                className={`
+                                    relative h-56 rounded-[3rem] flex flex-col items-center justify-center gap-4 transition-all shadow-lg border-8 active:scale-90
+                                    ${completedLevels.includes(idx) 
+                                        ? 'bg-green-100 border-green-400 text-green-700' 
+                                        : 'bg-white border-white hover:border-indigo-400 text-slate-600'}
+                                `}
+                            >
+                                <span className="text-7xl">{s.emoji}</span>
+                                <span className="font-black text-2xl">第 {idx + 1} 關</span>
+                                {completedLevels.includes(idx) && (
+                                    <div className="absolute top-4 right-4 text-green-500">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                    </div>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            );
+
+            const renderPlaying = () => {
+                const s = SCENARIOS[currentLevelIdx];
+                return (
+                    <div className="h-full w-full flex flex-col items-center justify-center p-8 bg-indigo-50">
+                        <div className="w-full max-w-7xl flex justify-start mb-6">
+                            <button onClick={() => setGameState('LEVEL_SELECT')} className="text-3xl font-bold text-indigo-600 bg-white px-10 py-5 rounded-3xl shadow-lg active:bg-indigo-100">
+                                ← 回關卡列表
+                            </button>
+                        </div>
+
+                        <div className="bg-white rounded-[4rem] shadow-2xl overflow-hidden w-full max-w-7xl flex min-h-[80vh] border-b-[20px] border-indigo-200">
+                            {/* 左側情境展示區 */}
+                            <div className="w-1/2 bg-indigo-600 flex flex-col items-center justify-center p-12 text-center text-white relative">
+                                <div className="text-[18rem] mb-10 drop-shadow-2xl">{s.emoji}</div>
+                                <div className="bg-white/20 px-8 py-4 rounded-full text-3xl font-black tracking-widest">關卡 {currentLevelIdx + 1}</div>
+                                <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle,white_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+                            </div>
+
+                            {/* 右側互動區 */}
+                            <div className="w-1/2 p-12 flex flex-col justify-center items-center gap-8">
+                                <div className="bg-slate-50 rounded-[3rem] p-10 border-4 border-slate-100 w-full text-center">
+                                    <p className="text-indigo-400 text-2xl mb-4 font-black">{selectedCharacter} 遇到了這個情況：</p>
+                                    <h3 className="text-4xl md:text-5xl font-black text-gray-700 leading-snug">
+                                        「{s.text}」
+                                    </h3>
+                                </div>
+
+                                <div className="flex flex-col items-center gap-8 w-full">
+                                    <p className="text-indigo-600 font-black text-4xl text-center">
+                                        {s.hint}
+                                    </p>
+
+                                    <div className="flex items-center gap-10 bg-white p-6 rounded-[3rem] shadow-sm border border-slate-50 w-full justify-center">
+                                        <button 
+                                            onClick={startListening}
+                                            disabled={isListening || feedback.type === 'success'}
+                                            className={`
+                                                group relative w-48 h-48 rounded-full flex items-center justify-center transition-all duration-300
+                                                ${isListening 
+                                                    ? 'bg-red-500 scale-110 shadow-[0_0_60px_rgba(239,68,68,0.7)]' 
+                                                    : 'bg-indigo-600 hover:bg-indigo-700 active:scale-90 shadow-2xl'}
+                                                ${feedback.type === 'success' ? 'opacity-50 cursor-not-allowed' : ''}
+                                            `}
+                                        >
+                                            {isListening && (
+                                                <div className="absolute inset-0 rounded-full animate-ping bg-red-400 opacity-75 scale-150"></div>
+                                            )}
+                                            <div className="text-white relative z-10 scale-150">
+                                                <MicIcon size={80} />
+                                            </div>
+                                        </button>
+                                        
+                                        <div className="text-left">
+                                            <p className={`text-4xl font-black ${isListening ? 'text-red-500 animate-pulse' : 'text-gray-400'}`}>
+                                                {isListening ? "正在聽你說..." : "點擊麥克風說話"}
+                                            </p>
+                                            <p className="text-xl text-slate-300 mt-2 font-bold">對準大電視麥克風大聲說</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 訊息反饋區 - 確保不與麥克風重疊 */}
+                                <div className="min-h-[140px] w-full flex flex-col items-center justify-center text-center">
+                                    {transcript && <div className="text-slate-400 font-bold text-2xl mb-4 italic tracking-wide">辨識到：{transcript}</div>}
+                                    {feedback.message && (
+                                        <div className={`px-12 py-8 rounded-[3rem] font-black text-4xl animate-bounce shadow-xl flex items-center gap-6
+                                            ${feedback.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-100 text-red-600'}
+                                        `}>
+                                            <span className="text-5xl">{feedback.type === 'success' ? '✔' : '✘'}</span>
+                                            {feedback.message}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderResult = () => (
+                <div className="h-full w-full flex flex-col items-center justify-center p-12 bg-yellow-50">
+                    <div className="bg-white rounded-[5rem] shadow-2xl p-24 max-w-4xl w-full text-center border-t-[24px] border-yellow-400">
+                        <div className="text-[18rem] mb-12 animate-bounce">🏆</div>
+                        <h2 className="text-8xl font-black text-gray-800 mb-8">超棒的！</h2>
+                        <p className="text-4xl text-gray-500 mb-16 font-bold leading-relaxed">
+                            恭喜 {selectedCharacter}！<br/>你已經成功的完成了所有挑戰！
+                        </p>
+                        <button 
+                            onClick={() => {
+                                setCompletedLevels([]);
+                                setGameState('CHARACTER_SELECT');
+                            }}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-10 rounded-[3rem] transition duration-200 flex items-center justify-center gap-6 text-5xl shadow-2xl active:scale-95"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                            重新開始
+                        </button>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="h-full w-full flex flex-col">
+                    {(gameState === 'PLAYING' || gameState === 'LEVEL_SELECT') && (
+                        <div className="w-full h-8 bg-white overflow-hidden shadow-md">
+                            <div 
+                                className="h-full bg-gradient-to-r from-indigo-400 via-purple-500 to-indigo-600 transition-all duration-1000 ease-out"
+                                style={{ width: `${(completedLevels.length / SCENARIOS.length) * 100}%` }}
+                            />
+                        </div>
+                    )}
+
+                    <div className="flex-grow overflow-hidden">
+                        {gameState === 'CHARACTER_SELECT' && renderCharacterSelect()}
+                        {gameState === 'LEVEL_SELECT' && renderLevelSelect()}
+                        {gameState === 'PLAYING' && renderPlaying()}
+                        {gameState === 'RESULT' && renderResult()}
+                    </div>
+
+                    <div className="h-12 bg-white flex items-center justify-center border-t border-slate-100">
+                         <span className="text-slate-300 font-black tracking-[1em] text-sm">EMOTION ADVENTURE • TOUCH SCREEN TV EDITION</span>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
