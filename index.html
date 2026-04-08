@@ -11,7 +11,7 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK (Compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -25,7 +25,7 @@
             font-family: 'Noto Sans TC', sans-serif; 
             background-color: #F8FAFC;
             user-select: none;
-            touch-action: none; /* 防止電視螢幕拖動 */
+            touch-action: none;
         }
         #root { height: 100%; width: 100%; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -38,7 +38,14 @@
         }
         .star-animate { animation: star-pop 0.5s ease-out forwards; }
 
-        .wheel-container { transition: transform 4s cubic-bezier(0.1, 0, 0.2, 1); }
+        .wheel-spin { transition: transform 4s cubic-bezier(0.15, 0, 0.2, 1); }
+        
+        /* 轉盤三角指針動畫 */
+        @keyframes pointer-wiggle {
+            0%, 100% { transform: translateX(-50%) rotate(0deg); }
+            50% { transform: translateX(-50%) rotate(5deg); }
+        }
+        .pointer-animate { animation: pointer-wiggle 0.2s infinite; }
     </style>
 </head>
 <body>
@@ -47,7 +54,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- 人物資料 (.jpg) ---
+        // --- 人物資料與照片 ---
         const CHARACTER_DATA = [
             { name: "沄恩", img: "spic/1.jpg" },
             { name: "澄洋", img: "spic/2.jpg" },
@@ -73,7 +80,7 @@
             { id: 10, text: "同學跟我借彩色筆，我也借給他一起用。", emoji: "🖍️", hint: "分享東西給別人，你覺得現在的心情是..." }
         ];
 
-        // --- Firebase 初始化 (加強安全性，防止白畫面) ---
+        // --- Firebase 安全防護 ---
         let db, auth, appId;
         try {
             const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
@@ -82,9 +89,9 @@
             }
             db = firebase.firestore();
             auth = firebase.auth();
-            appId = typeof __app_id !== 'undefined' ? __app_id : 'emotion-adventure-v3';
+            appId = typeof __app_id !== 'undefined' ? __app_id : 'emotion-adventure-v5';
         } catch (e) {
-            console.error("Firebase Initialization Failed", e);
+            console.error("Firebase Init Fail", e);
         }
 
         function App() {
@@ -104,27 +111,34 @@
             const [isSpinning, setIsSpinning] = useState(false);
 
             const recognitionRef = useRef(null);
+            const currentLevelIdxRef = useRef(0);
+            const selectedCharacterRef = useRef(null);
 
-            // 1. 初始化 Auth 與 資料同步
+            useEffect(() => { currentLevelIdxRef.current = currentLevelIdx; }, [currentLevelIdx]);
+            useEffect(() => { selectedCharacterRef.current = selectedCharacter; }, [selectedCharacter]);
+
+            // 1. 初始化 Auth 與 雲端監聽
             useEffect(() => {
-                const initAuth = async () => {
+                const start = async () => {
+                    if (!auth) return;
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await auth.signInWithCustomToken(__initial_auth_token);
                         } else {
                             await auth.signInAnonymously();
                         }
-                    } catch (e) { console.warn("Auth check failed, using fallback."); }
+                    } catch (e) { console.warn("Auth Error", e); }
                 };
-                initAuth();
-                const unsubscribe = auth.onAuthStateChanged(u => setUser(u));
-                return () => unsubscribe();
+                start();
+                const unsub = auth.onAuthStateChanged(u => setUser(u));
+                return () => unsub();
             }, []);
 
             useEffect(() => {
-                if (!user) return;
-                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data');
-                const unsubscribe = docRef.onSnapshot(doc => {
+                if (!user || !db) return;
+                // 使用指定路徑 /artifacts/{appId}/public/data/summary
+                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary');
+                const unsubData = docRef.onSnapshot(doc => {
                     if (doc.exists) {
                         setAllProgress(doc.data().students || {});
                     } else {
@@ -132,8 +146,8 @@
                         CHARACTERS.forEach(c => init[c] = { completed: [], records: {} });
                         setAllProgress(init);
                     }
-                }, err => console.warn("Snapshot silent fail", err));
-                return () => unsubscribe();
+                }, err => console.warn("Snapshot error", err));
+                return () => unsubData();
             }, [user]);
 
             // 2. 時鐘
@@ -159,27 +173,36 @@
                     recognitionRef.current.onresult = (event) => {
                         const result = event.results[0][0].transcript;
                         setTranscript(result);
-                        setFeedback({ type: 'success', message: '辨識完成！老師可修正文字後存檔。' });
+                        setFeedback({ type: 'success', message: '辨識完成！老師可以手動編輯喔。' });
                     };
                     recognitionRef.current.onerror = () => setIsListening(false);
                     recognitionRef.current.onend = () => setIsListening(false);
                 }
             }, []);
 
+            // --- 功能函數 ---
+
             const saveToCloud = async (textToSave) => {
-                if (!selectedCharacter || !user) return;
-                const charData = allProgress[selectedCharacter] || { completed: [], records: {} };
-                const newCompleted = charData.completed.includes(currentLevelIdx) 
+                const charName = selectedCharacterRef.current;
+                const levelIdx = currentLevelIdxRef.current;
+                if (!charName || !user || !db) return;
+
+                const charData = allProgress[charName] || { completed: [], records: {} };
+                const newCompleted = charData.completed.includes(levelIdx) 
                     ? charData.completed 
-                    : [...charData.completed, currentLevelIdx];
+                    : [...charData.completed, levelIdx];
                 
-                const updatedRecords = { ...charData.records, [currentLevelIdx]: textToSave };
-                const newData = { ...allProgress, [selectedCharacter]: { completed: newCompleted, records: updatedRecords } };
+                const updatedRecords = { ...charData.records, [levelIdx]: textToSave };
+                const newData = { ...allProgress, [charName]: { completed: newCompleted, records: updatedRecords } };
 
                 try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').set({ students: newData }, { merge: true });
-                    setFeedback({ type: 'success', message: '紀錄已成功更新到雲端！' });
-                } catch (e) { setFeedback({ type: 'error', message: '連線錯誤，無法儲存。' }); }
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary').set({
+                        students: newData
+                    }, { merge: true });
+                    setFeedback({ type: 'success', message: '紀錄已成功同步到雲端！' });
+                } catch (e) {
+                    setFeedback({ type: 'error', message: '儲存失敗，請檢查網路。' });
+                }
             };
 
             const startListening = () => {
@@ -193,7 +216,7 @@
             const spinTheWheel = () => {
                 if (isSpinning) return;
                 setIsSpinning(true);
-                const rotate = Math.floor(Math.random() * 360) + 1800; // 5圈
+                const rotate = Math.floor(Math.random() * 360) + 2160; // 轉 6 圈
                 const newRot = wheelRotation + rotate;
                 setWheelRotation(newRot);
 
@@ -201,14 +224,14 @@
                     setIsSpinning(false);
                     const finalDeg = newRot % 360;
                     const slice = 360 / CHARACTERS.length;
-                    const index = Math.floor(((360 - finalDeg) % 360) / slice);
+                    const index = Math.floor(((360 - (finalDeg % 360)) % 360) / slice);
                     const winner = CHARACTERS[index];
                     
                     setTimeout(() => {
                         setSelectedCharacter(winner);
                         setGameState('LEVEL_SELECT');
                         setShowWheel(false);
-                    }, 800);
+                    }, 1000);
                 }, 4100);
             };
 
@@ -234,21 +257,22 @@
                 </div>
             );
 
+            // 1. 首頁
             const renderCharacterSelect = () => (
-                <div className="h-full w-full flex flex-col items-center justify-between py-6 px-12 bg-gradient-to-br from-indigo-50 to-white">
+                <div className="h-full w-full flex flex-col items-center justify-between py-8 px-12 bg-gradient-to-br from-indigo-50 to-white">
                     <div className="text-center">
                         <h2 className="text-5xl font-black text-slate-800 tracking-widest mt-4">誰來挑戰情緒冒險？</h2>
-                        <p className="text-slate-400 font-bold mt-2">點擊照片可回顧該位同學的「歷次紀錄」</p>
+                        <p className="text-slate-400 font-bold mt-2 italic tracking-wide">點擊同學頭像可直接查看「冒險回顧」</p>
                     </div>
 
                     <div className="grid grid-cols-4 gap-6 w-full max-w-6xl">
                         {CHARACTER_DATA.map((char) => (
                             <div
                                 key={char.name}
-                                className="bg-white p-6 rounded-[3rem] shadow-lg border-[8px] border-white hover:border-indigo-200 transition-all flex flex-col items-center justify-center min-h-[220px] cursor-pointer"
+                                className="bg-white p-6 rounded-[3rem] shadow-lg border-[8px] border-white hover:border-indigo-100 transition-all flex flex-col items-center justify-center min-h-[220px] cursor-pointer"
                                 onClick={() => { setSelectedCharacter(char.name); setGameState('SUMMARY'); }}
                             >
-                                <CharacterAvatar name={char.name} className="w-28 h-28 mb-2" />
+                                <CharacterAvatar name={char.name} className="w-24 h-24 mb-2" />
                                 <span className="text-4xl font-black text-slate-700">{char.name}</span>
                                 <StarsDisplay count={allProgress[char.name]?.completed.length || 0} />
                             </div>
@@ -258,38 +282,50 @@
                     <div className="w-full flex justify-between items-end mb-4 px-4">
                         <button 
                             onClick={() => { setSelectedCharacter(null); setGameState('SUMMARY'); }}
-                            className="bg-white border-2 border-slate-200 text-slate-400 px-10 py-5 rounded-3xl font-black text-2xl shadow-sm hover:bg-slate-50 transition-all"
+                            className="bg-white border-2 border-slate-200 text-slate-400 px-10 py-5 rounded-3xl font-black text-2xl shadow-sm hover:bg-slate-50 active:scale-95"
                         >
-                            📊 全班進度總覽
+                            📊 檢視全班紀錄總覽
                         </button>
 
                         <button 
                             onClick={() => setShowWheel(true)}
-                            className="bg-indigo-600 text-white px-14 py-8 rounded-[3.5rem] text-4xl font-black shadow-2xl hover:bg-indigo-700 active:scale-90 flex items-center gap-4 animate-bounce"
+                            className="bg-indigo-600 text-white px-14 py-10 rounded-[4rem] text-5xl font-black shadow-2xl hover:bg-indigo-700 active:scale-90 flex items-center gap-6 animate-pulse"
                         >
-                            🎡 幸運大轉盤
+                            🎡 旋轉大轉盤
                         </button>
                     </div>
 
+                    {/* 轉盤視窗 */}
                     {showWheel && (
                         <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center backdrop-blur-md">
-                            <div className="bg-white p-12 rounded-[5rem] flex flex-col items-center gap-10 relative max-w-2xl w-full border-[12px] border-indigo-100 shadow-2xl">
+                            <div className="bg-white p-12 rounded-[5rem] flex flex-col items-center gap-12 relative max-w-2xl w-full border-[12px] border-indigo-50 shadow-2xl">
                                 <button onClick={() => !isSpinning && setShowWheel(false)} className="absolute top-10 right-10 text-5xl text-slate-200">✕</button>
                                 <h3 className="text-5xl font-black text-slate-800">命運點點名</h3>
-                                <div className="relative w-[400px] h-[400px] flex items-center justify-center">
-                                    <div className="absolute top-[-40px] z-50 text-red-600 text-8xl drop-shadow-md">▼</div>
-                                    <div className="w-full h-full rounded-full border-[12px] border-indigo-600 wheel-container shadow-2xl overflow-hidden bg-white" style={{ transform: `rotate(${wheelRotation}deg)` }}>
+                                <div className="relative w-[450px] h-[450px] flex items-center justify-center">
+                                    <div className={`absolute top-[-50px] z-50 text-red-600 text-9xl drop-shadow-lg ${isSpinning ? 'pointer-animate' : ''}`} style={{left: '50%', transform: 'translateX(-50%)'}}>▼</div>
+                                    <div 
+                                        className="w-full h-full rounded-full border-[15px] border-indigo-600 wheel-spin shadow-2xl overflow-hidden bg-white relative"
+                                        style={{ transform: `rotate(${wheelRotation}deg)` }}
+                                    >
                                         {CHARACTERS.map((name, i) => {
                                             const deg = 360 / CHARACTERS.length;
                                             return (
-                                                <div key={name} className="absolute w-full h-full flex justify-center pt-8 origin-center" style={{ transform: `rotate(${i * deg}deg)` }}>
-                                                    <span className="font-black text-3xl text-indigo-900">{name}</span>
+                                                <div 
+                                                    key={name}
+                                                    className="absolute w-full h-full flex justify-center pt-10 origin-center"
+                                                    style={{ transform: `rotate(${i * deg}deg)` }}
+                                                >
+                                                    <span className="font-black text-4xl text-indigo-900 drop-shadow-sm">{name}</span>
                                                 </div>
                                             );
                                         })}
+                                        {/* 分隔線 */}
+                                        {CHARACTERS.map((_, i) => (
+                                            <div key={i} className="absolute top-0 left-1/2 w-1 h-full bg-indigo-100 opacity-30 origin-bottom" style={{transform: `translateX(-50%) rotate(${i * (360/CHARACTERS.length) + (360/CHARACTERS.length/2)}deg)`}}></div>
+                                        ))}
                                     </div>
                                 </div>
-                                <button onClick={spinTheWheel} disabled={isSpinning} className={`px-20 py-8 rounded-[3rem] text-4xl font-black text-white ${isSpinning ? 'bg-slate-300' : 'bg-red-500 shadow-2xl active:scale-95'}`}>
+                                <button onClick={spinTheWheel} disabled={isSpinning} className={`px-24 py-10 rounded-[3rem] text-5xl font-black text-white ${isSpinning ? 'bg-slate-300' : 'bg-red-500 shadow-2xl active:scale-95 transition-all'}`}>
                                     {isSpinning ? "旋轉中..." : "開始轉動"}
                                 </button>
                             </div>
@@ -298,6 +334,7 @@
                 </div>
             );
 
+            // 2. 紀錄回顧
             const renderSummary = () => {
                 const names = selectedCharacter ? [selectedCharacter] : CHARACTERS;
                 return (
@@ -343,6 +380,7 @@
                 );
             };
 
+            // 3. 選關地圖
             const renderLevelSelect = () => {
                 const charData = allProgress[selectedCharacter] || { completed: [], records: {} };
                 return (
@@ -351,9 +389,9 @@
                             <button onClick={() => setGameState('CHARACTER_SELECT')} className="text-3xl font-black text-slate-400 px-6 py-4">← 重選挑戰者</button>
                             <h2 className="text-5xl font-black text-slate-800 flex items-center gap-6">
                                 <CharacterAvatar name={selectedCharacter} className="w-24 h-24" />
-                                <span className="text-indigo-600 underline underline-offset-8 decoration-indigo-200">{selectedCharacter}</span> 的冒險地圖
+                                <span className="text-indigo-600 underline underline-offset-8 decoration-indigo-200">{selectedCharacter}</span> 的地圖
                             </h2>
-                            <button onClick={() => setGameState('SUMMARY')} className="bg-indigo-50 text-indigo-600 px-10 py-4 rounded-3xl font-black text-2xl shadow-sm">📜 回顧紀錄</button>
+                            <button onClick={() => setGameState('SUMMARY')} className="bg-indigo-50 text-indigo-600 px-10 py-4 rounded-3xl font-black text-2xl shadow-sm">📜 歷史回顧</button>
                         </div>
                         <div className="grid grid-cols-5 gap-8 w-full max-w-7xl flex-grow content-center">
                             {SCENARIOS.map((s, idx) => (
@@ -374,17 +412,18 @@
                 );
             };
 
+            // 4. 遊玩頁面
             const renderPlaying = () => {
                 const s = SCENARIOS[currentLevelIdx];
                 const charData = allProgress[selectedCharacter] || { completed: [], records: {} };
-                const currentText = transcript || charData.records[currentLevelIdx] || '';
-                const isFinished = feedback.type === 'success' && transcript.length > 0;
+                const historyText = charData.records[currentLevelIdx] || '';
+                const currentDisplay = transcript || historyText;
 
                 return (
                     <div className="h-full w-full flex flex-col items-center justify-center p-6 bg-indigo-50 overflow-hidden">
                         <div className="w-full max-w-[95vw] flex justify-between items-center mb-2 px-6">
-                            <button onClick={() => setGameState('LEVEL_SELECT')} className="text-2xl font-bold text-indigo-600 bg-white px-8 py-3 rounded-2xl shadow-md">← 回到地圖</button>
-                            <div className="flex items-center gap-4 bg-white/80 px-6 py-2 rounded-full shadow-sm">
+                            <button onClick={() => setGameState('LEVEL_SELECT')} className="text-2xl font-bold text-indigo-600 bg-white px-8 py-3 rounded-2xl shadow-md active:bg-slate-50">← 返回地圖</button>
+                            <div className="flex items-center gap-4 bg-white/80 px-6 py-2 rounded-full shadow-sm border border-white">
                                 <CharacterAvatar name={selectedCharacter} className="w-12 h-12" />
                                 <span className="font-black text-2xl text-slate-700">{selectedCharacter} 的挑戰</span>
                             </div>
@@ -393,7 +432,7 @@
                         <div className="bg-white rounded-[5rem] shadow-2xl overflow-hidden w-full max-w-[95vw] flex flex-1 max-h-[78vh] border-b-[20px] border-indigo-200">
                             <div className="w-[35%] bg-indigo-600 flex flex-col items-center justify-center p-8 text-center text-white relative">
                                 <div className="text-[18rem] mb-8 drop-shadow-2xl">{s.emoji}</div>
-                                <div className="bg-white/20 px-10 py-4 rounded-full text-4xl font-black tracking-[0.2em]">LEVEL {currentLevelIdx + 1}</div>
+                                <div className="bg-white/20 px-10 py-4 rounded-full text-4xl font-black tracking-[0.2em] uppercase">LEVEL {currentLevelIdx + 1}</div>
                                 <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle,white_1px,transparent_1px)] bg-[size:40px_40px]"></div>
                             </div>
 
@@ -406,9 +445,9 @@
                                     <p className="text-indigo-600 font-black text-4xl text-center">{s.hint}</p>
                                     <div className="flex items-center gap-10 bg-indigo-50/50 p-8 rounded-[4rem] border-2 border-indigo-100 w-full justify-center shadow-sm">
                                         <button onClick={startListening} disabled={isListening} 
-                                            className={`relative w-44 h-44 rounded-full flex items-center justify-center transition-all duration-300 ${isListening ? 'bg-red-500 scale-110 shadow-[0_0_60px_rgba(239,68,68,0.7)]' : 'bg-indigo-600 hover:bg-indigo-700 shadow-xl'}`}>
+                                            className={`relative w-44 h-44 rounded-full flex items-center justify-center transition-all duration-300 ${isListening ? 'bg-red-500 scale-110 shadow-[0_0_60px_rgba(239,68,68,0.7)]' : 'bg-indigo-600 hover:bg-indigo-700 shadow-xl active:scale-90'}`}>
                                             {isListening && <div className="absolute inset-0 rounded-full animate-ping bg-red-400 opacity-75 scale-125"></div>}
-                                            <div className="text-white relative z-10 scale-[2]">
+                                            <div className="text-white relative z-10 scale-[2.2]">
                                                  <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="22"></line></svg>
                                             </div>
                                         </button>
@@ -416,25 +455,27 @@
                                             <p className={`text-6xl font-black ${isListening ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>
                                                 {isListening ? "正在傾聽..." : "點擊開始錄音"}
                                             </p>
-                                            <p className="text-2xl text-slate-300 mt-2 font-bold uppercase tracking-widest">老師可在下方直接點擊修正文字</p>
+                                            <p className="text-2xl text-slate-300 mt-2 font-bold uppercase tracking-widest underline underline-offset-4 decoration-indigo-100">老師可直接點擊下方修正文字</p>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="h-[220px] w-full flex flex-col items-center justify-center text-center gap-4">
-                                    {(currentText || isListening) && (
-                                        <div className="bg-white w-full px-10 py-6 rounded-[3rem] border-[8px] border-indigo-200 shadow-2xl flex flex-col gap-2">
-                                            <p className="text-indigo-400 text-2xl font-black border-b-2 border-slate-50 pb-2 mb-2">💬 學生的敘述：</p>
+                                    {(currentDisplay || isListening) && (
+                                        <div className="bg-white w-full px-10 py-6 rounded-[3rem] border-[8px] border-indigo-200 shadow-2xl flex flex-col gap-2 relative">
+                                            <p className="text-indigo-400 text-2xl font-black border-b-2 border-slate-50 pb-2 mb-2 flex items-center justify-center gap-2">
+                                                <span>💬</span> 敘述內容 (點擊可修改)：
+                                            </p>
                                             <textarea 
-                                                className="w-full text-5xl font-black text-indigo-900 text-center bg-transparent border-none focus:ring-0 resize-none h-32 no-scrollbar"
-                                                value={currentText}
+                                                className="w-full text-5xl font-black text-indigo-900 text-center bg-transparent border-none focus:ring-0 resize-none h-32 no-scrollbar leading-relaxed"
+                                                value={currentDisplay}
                                                 onChange={(e) => setTranscript(e.target.value)}
                                                 placeholder="..."
                                             />
                                         </div>
                                     )}
-                                    {currentText.length > 0 && !isListening && (
-                                        <button onClick={async () => { await saveToCloud(currentText); setGameState('LEVEL_SELECT'); }}
+                                    {currentDisplay.length > 0 && !isListening && (
+                                        <button onClick={async () => { await saveToCloud(currentDisplay); setGameState('LEVEL_SELECT'); }}
                                             className="bg-green-500 hover:bg-green-600 text-white font-black py-8 px-20 rounded-[3rem] text-5xl shadow-xl active:scale-95 transition-all flex items-center gap-6">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                                             修正完成，確認存檔
@@ -449,7 +490,7 @@
 
             return (
                 <div className="h-full w-full flex flex-col relative overflow-hidden">
-                    {(gameState === 'PLAYING' || gameState === 'LEVEL_SELECT') && (
+                    {(gameState === 'PLAYING' || gameState === 'LEVEL_SELECT' || (gameState === 'SUMMARY' && selectedCharacter)) && (
                         <div className="w-full h-8 bg-white shadow-sm overflow-hidden border-b-2 border-slate-50">
                             <div className="h-full bg-gradient-to-r from-indigo-400 via-purple-500 to-indigo-600 transition-all duration-1000 ease-out"
                                 style={{ width: `${((allProgress[selectedCharacter]?.completed.length || 0) / SCENARIOS.length) * 100}%` }} />
@@ -463,9 +504,9 @@
                     </div>
                     <div className="h-20 bg-white flex items-center justify-between px-20 border-t-2 border-slate-100 z-50 shadow-inner">
                          <div className="bg-indigo-600 text-white px-8 py-2 rounded-2xl font-black text-4xl tabular-nums shadow-lg">{currentTime}</div>
-                         <span className="text-slate-200 font-black tracking-[1.2em] text-xl uppercase hidden lg:inline">Emotion Adventure • Cloud Data</span>
+                         <span className="text-slate-200 font-black tracking-[1.2em] text-xl uppercase hidden lg:inline tracking-tighter">Emotion Adventure • Persistent Data</span>
                          <div className="bg-indigo-50 px-8 py-2 rounded-2xl font-black text-indigo-400 text-2xl shadow-inner">
-                             {selectedCharacter ? `${selectedCharacter} 過關：${allProgress[selectedCharacter]?.completed.length || 0}/10` : "請點選轉盤或照片"}
+                             {selectedCharacter ? `${selectedCharacter} 已完成：${allProgress[selectedCharacter]?.completed.length || 0}/10` : "請點選轉盤或點擊照片"}
                          </div>
                     </div>
                 </div>
