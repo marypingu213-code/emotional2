@@ -3,410 +3,552 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>情緒大冒險 - 互動點名與永久紀錄</title>
+    <title>情緒大冒險 - 互動點名與雙軌紀錄</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-        
-        body, html { 
-            margin: 0; padding: 0; height: 100vh; width: 100vw; 
-            overflow: hidden; 
-            font-family: 'Noto Sans TC', sans-serif; 
-            background-color: #F8FAFC;
-            user-select: none;
-            touch-action: none;
-        }
-        #root { height: 100%; width: 100%; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-        @keyframes star-pop {
-            0% { transform: scale(0); }
-            80% { transform: scale(1.3); }
-            100% { transform: scale(1); }
-        }
-        .star-animate { animation: star-pop 0.5s ease-out forwards; }
+        body, html { margin:0; padding:0; height:100vh; width:100vw; overflow:hidden; font-family:'Noto Sans TC',sans-serif; background:#F8FAFC; user-select:none; touch-action:none; }
+        #root { height:100%; width:100%; }
+        .no-scrollbar::-webkit-scrollbar { display:none; }
+        .no-scrollbar { -ms-overflow-style:none; scrollbar-width:none; }
+        @keyframes star-pop { 0%{transform:scale(0)} 80%{transform:scale(1.3)} 100%{transform:scale(1)} }
+        .star-animate { animation:star-pop 0.5s ease-out forwards; }
+        @keyframes hint-slide { 0%{opacity:0;transform:translateY(12px)} 100%{opacity:1;transform:translateY(0)} }
+        .hint-a { animation:hint-slide 0.35s ease-out 0.1s both; }
+        .hint-b { animation:hint-slide 0.35s ease-out 0.25s both; }
+        @keyframes mic-ring { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)} 50%{box-shadow:0 0 0 22px rgba(239,68,68,0)} }
+        .mic-active { animation:mic-ring 1.2s ease-out infinite; }
+        @keyframes scaffold-in { 0%{opacity:0;transform:scale(0.85)} 100%{opacity:1;transform:scale(1)} }
+        .scaffold-chip { animation:scaffold-in 0.25s ease-out both; }
     </style>
 </head>
 <body>
-    <div id="root"></div>
+<div id="root"></div>
+<script type="text/babel">
+    const { useState, useEffect, useRef } = React;
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+    const firebaseConfig = {
+        apiKey: "AIzaSyBdioCJeP0FbZvX_opzhrgsgQ5OtQR5J_Y",
+        authDomain: "emotionadventure-bca46.firebaseapp.com",
+        projectId: "emotionadventure-bca46",
+        storageBucket: "emotionadventure-bca46.firebasestorage.app",
+        messagingSenderId: "255312343191",
+        appId: "1:255312343191:web:ac90f2cbb36296edbdf9d2",
+        measurementId: "G-D7WVZ0SQBL"
+    };
 
-        // --- 1. Firebase 設定 ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyBdioCJeP0FbZvX_opzhrgsgQ5OtQR5J_Y",
-            authDomain: "emotionadventure-bca46.firebaseapp.com",
-            projectId: "emotionadventure-bca46",
-            storageBucket: "emotionadventure-bca46.firebasestorage.app",
-            messagingSenderId: "255312343191",
-            appId: "1:255312343191:web:ac90f2cbb36296edbdf9d2",
-            measurementId: "G-D7WVZ0SQBL"
+    const CHARACTER_DATA = [
+        { name:"沄恩", img:"spic/1.jpg" }, { name:"澄洋", img:"spic/2.jpg" },
+        { name:"意欣", img:"spic/3.jpg" }, { name:"宇晴", img:"spic/4.jpg" },
+        { name:"齊安", img:"spic/5.jpg" }, { name:"欽銓", img:"spic/6.jpg" },
+        { name:"盧楷", img:"spic/7.jpg" }
+    ];
+    const CHARACTERS = CHARACTER_DATA.map(c => c.name);
+
+    // ── 情境資料：含方案一、方案二、回答鷹架 ──────────────────────────
+    const SCENARIOS = [
+        {
+            id:1, emoji:"🚫",
+            text:"下課時我想加入同學的遊戲，但他們說「我們不要你」，我好難過。",
+            question:"碰到這種情況，你會怎麼做呢？",
+            hints:[
+                { icon:"🌈", label:"方案一", text:"去找其他朋友，一起玩別的遊戲" },
+                { icon:"💬", label:"方案二", text:"平靜地問：「我可以加入嗎？」" }
+            ],
+            scaffolds:["我聽到這句話，心裡覺得⋯⋯","我會先⋯⋯","然後我打算⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:2, emoji:"😤",
+            text:"我和好朋友因為一點小事吵架了，我們現在都不說話。",
+            question:"要怎麼讓關係好起來呢？",
+            hints:[
+                { icon:"🌬️", label:"方案一", text:"先深呼吸讓自己冷靜，給彼此一點空間" },
+                { icon:"🤝", label:"方案二", text:"主動走過去說「對不起」或「我們和好吧」" }
+            ],
+            scaffolds:["我覺得我們吵架是因為⋯⋯","我想先⋯⋯","等我冷靜之後，我會⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:3, emoji:"😢",
+            text:"考試卷發下來，我的成績很差，我覺得很沮喪想哭。",
+            question:"面對考不好的心情，你會怎麼處理？",
+            hints:[
+                { icon:"💪", label:"方案一", text:"告訴自己「這次沒關係，下次更努力」" },
+                { icon:"🔍", label:"方案二", text:"請爸媽或老師幫我找出哪裡還不懂" }
+            ],
+            scaffolds:["我看到成績，心裡的感覺是⋯⋯","我告訴自己⋯⋯","下一步我可以⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:4, emoji:"😡",
+            text:"有同學一直嘲笑我的名字或外表，我覺得很生氣又很受傷。",
+            question:"被嘲笑的時候，你可以怎麼應對？",
+            hints:[
+                { icon:"🛑", label:"方案一", text:"堅定地說：「請不要這樣說，我不喜歡。」" },
+                { icon:"🧑‍🏫", label:"方案二", text:"告訴老師或其他信任的大人" }
+            ],
+            scaffolds:["聽到嘲笑，我心裡覺得⋯⋯","我可以對他說⋯⋯","如果還是不停，我會⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:5, emoji:"😰",
+            text:"我不小心打破了教室裡的東西，很害怕被老師責罵。",
+            question:"打破東西後，你覺得最好的做法是什麼？",
+            hints:[
+                { icon:"🗣️", label:"方案一", text:"誠實地告訴老師發生了什麼事" },
+                { icon:"🙏", label:"方案二", text:"先道歉，再問老師「我可以怎麼幫忙？」" }
+            ],
+            scaffolds:["東西打破了，我第一個感覺是⋯⋯","我決定⋯⋯","我想對老師說⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:6, emoji:"🤔",
+            text:"我看到一個同學在走廊被另一個同學推來推去，但我不知道該怎麼辦。",
+            question:"看到有人被欺負，你會怎麼做？",
+            hints:[
+                { icon:"🚨", label:"方案一", text:"馬上跑去告訴老師或附近的大人" },
+                { icon:"🏃", label:"方案二", text:"拉著被欺負的同學一起離開現場" }
+            ],
+            scaffolds:["我看到這件事，我覺得⋯⋯","我認為我應該⋯⋯","我不會___，因為⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:7, emoji:"😖",
+            text:"老師誤會是我做的，但其實不是我，我覺得好委屈。",
+            question:"被誤解的時候，你要怎麼讓老師知道真相？",
+            hints:[
+                { icon:"🕊️", label:"方案一", text:"等老師說完，再平靜地說明真相" },
+                { icon:"👥", label:"方案二", text:"請當時看到的同學幫我說明情況" }
+            ],
+            scaffolds:["我心裡覺得⋯⋯","我想告訴老師⋯⋯","我可以請___幫我⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:8, emoji:"🤕",
+            text:"體育課跑步時我跌倒了，膝蓋破皮很痛，眼眶紅紅的。",
+            question:"受傷的時候，你會怎麼求助？",
+            hints:[
+                { icon:"📢", label:"方案一", text:"告訴老師或旁邊的同學「我受傷了，需要幫忙」" },
+                { icon:"🧘", label:"方案二", text:"先不要亂動，坐著等大人過來幫忙" }
+            ],
+            scaffolds:["我跌倒的時候，身體覺得⋯⋯","我第一步會⋯⋯","我會請___來幫忙，因為⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:9, emoji:"😣",
+            text:"分組活動時，我沒有被任何一組選到，一個人站在那裡很尷尬。",
+            question:"沒人選你的時候，你會怎麼面對？",
+            hints:[
+                { icon:"✋", label:"方案一", text:"鼓起勇氣問：「有沒有組可以讓我加入？」" },
+                { icon:"🙋", label:"方案二", text:"舉手請老師幫忙安排分組" }
+            ],
+            scaffolds:["站在那裡，我的感覺是⋯⋯","我告訴自己⋯⋯","我可以主動去⋯⋯","我選擇方案___，因為⋯⋯"]
+        },
+        {
+            id:10, emoji:"🎁",
+            text:"同學帶了一個很酷的新玩具來學校，我非常想要玩，但那是他的。",
+            question:"很想玩別人的東西時，你會怎麼做？",
+            hints:[
+                { icon:"🗨️", label:"方案一", text:"禮貌地問：「可以讓我玩一下嗎？」" },
+                { icon:"🔄", label:"方案二", text:"想想自己有什麼也可以分享給對方" }
+            ],
+            scaffolds:["我看到那個玩具，心裡覺得⋯⋯","我會對他說⋯⋯","如果他說不要，我會⋯⋯","我選擇方案___，因為⋯⋯"]
+        }
+    ];
+
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+    const DB_COLLECTION = "ClassRecords_V12";
+
+    function App() {
+        const [gameState, setGameState] = useState('CHARACTER_SELECT');
+        const [selectedCharacter, setSelectedCharacter] = useState(null);
+        const [currentLevelIdx, setCurrentLevelIdx] = useState(0);
+        const [isListening, setIsListening] = useState(false);
+        const [transcript, setTranscript] = useState('');
+        const [allProgress, setAllProgress] = useState({});
+        const [currentTime, setCurrentTime] = useState('');
+
+        const recognitionRef = useRef(null);
+        const accRef = useRef(''); // accumulated transcript between interim results
+
+        // ── Firebase + LocalStorage ────────────────────────────────────
+        useEffect(() => {
+            auth.signInAnonymously().catch(() => {});
+            const local = localStorage.getItem('emotion_adventure_data_v2');
+            if (local) { try { setAllProgress(JSON.parse(local)); } catch(e){} }
+            else { const init={}; CHARACTERS.forEach(c=>init[c]={completed:[],records:{}}); setAllProgress(init); }
+            const unsub = db.collection('GameData').doc(DB_COLLECTION).onSnapshot(snap => {
+                if (snap.exists) {
+                    const d = snap.data().students||{};
+                    setAllProgress(d);
+                    localStorage.setItem('emotion_adventure_data_v2', JSON.stringify(d));
+                }
+            }, ()=>{});
+            return ()=>unsub();
+        }, []);
+
+        // ── Clock ──────────────────────────────────────────────────────
+        useEffect(() => {
+            const tick = () => {
+                const n = new Date();
+                setCurrentTime(`${n.getHours()>=12?'下午':'上午'} ${n.getHours()%12||12}:${n.getMinutes().toString().padStart(2,'0')}`);
+            };
+            tick(); const t = setInterval(tick,10000); return ()=>clearInterval(t);
+        }, []);
+
+        // ── Speech Recognition (手動開始 / 手動停止) ─────────────────
+        useEffect(() => {
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SR) return;
+            const rec = new SR();
+            rec.lang = 'zh-TW';
+            rec.continuous = true;       // 持續錄音，不自動停止
+            rec.interimResults = true;   // 顯示中間結果
+            rec.onresult = (e) => {
+                let final = accRef.current;
+                let interim = '';
+                for (let i = e.resultIndex; i < e.results.length; i++) {
+                    if (e.results[i].isFinal) { final += e.results[i][0].transcript; }
+                    else { interim = e.results[i][0].transcript; }
+                }
+                accRef.current = final;
+                setTranscript(final + interim);
+            };
+            rec.onerror = () => { setIsListening(false); };
+            rec.onend = () => {
+                // continuous 模式下 onend 只會在 stop() 後觸發
+                setTranscript(accRef.current);
+                setIsListening(false);
+            };
+            recognitionRef.current = rec;
+        }, []);
+
+        const toggleListening = () => {
+            if (!recognitionRef.current) return;
+            if (isListening) {
+                // 按第二下 → 停止
+                recognitionRef.current.stop();
+                // isListening 由 onend 設為 false
+            } else {
+                // 按第一下 → 開始
+                accRef.current = '';
+                setTranscript('');
+                setIsListening(true);
+                try { recognitionRef.current.start(); } catch(e){ setIsListening(false); }
+            }
         };
 
-        // Initialize Firebase
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-        const db = firebase.firestore();
-        const auth = firebase.auth();
-        const appId = "emotion_adventure_v10";
+        // ── 儲存 ───────────────────────────────────────────────────────
+        const saveToCloud = async (text) => {
+            if (!selectedCharacter) return;
+            const charData = allProgress[selectedCharacter]||{completed:[],records:{}};
+            const newCompleted = [...new Set([...(charData.completed||[]),currentLevelIdx])];
+            const updatedRecords = {...(charData.records||{}),[currentLevelIdx]:text};
+            const newData = {...allProgress,[selectedCharacter]:{completed:newCompleted,records:updatedRecords}};
+            setAllProgress(newData);
+            localStorage.setItem('emotion_adventure_data_v2', JSON.stringify(newData));
+            try { await db.collection('GameData').doc(DB_COLLECTION).set({students:newData},{merge:true}); } catch(e){}
+            setGameState('LEVEL_SELECT');
+        };
 
-        const CHARACTER_DATA = [
-            { name: "沄恩", img: "spic/1.jpg" },
-            { name: "澄洋", img: "spic/2.jpg" },
-            { name: "意欣", img: "spic/3.jpg" },
-            { name: "宇晴", img: "spic/4.jpg" },
-            { name: "齊安", img: "spic/5.jpg" },
-            { name: "欽銓", img: "spic/6.jpg" },
-            { name: "盧楷", img: "spic/7.jpg" }
-        ];
+        // ── 鷹架點擊：插入句首 ────────────────────────────────────────
+        const insertScaffold = (chip) => {
+            setTranscript(prev => {
+                const base = prev.trim();
+                if (!base) return chip;
+                // 如果最後一個字是標點，換行加入；否則直接接
+                return base + (base.match(/[。！？⋯]$/) ? '\n' : '，') + chip;
+            });
+        };
 
-        const CHARACTERS = CHARACTER_DATA.map(c => c.name);
-
-        // 新增回答鷹架 (scaffold)
-        const SCENARIOS = [
-            { id: 1, text: "我和同學玩遊戲輸了，我覺得心裡酸酸的。", emoji: "🎮", hint: "輸掉遊戲時，你會怎麼跟自己說？", scaffold: "我覺得心裡酸酸的，下次我可以 ＿＿＿ 。" },
-            { id: 2, text: "今天早上我上課遲到了，進教室時看到大家都在看我。", emoji: "⏰", hint: "遲到的時候，你想跟老師說什麼？", scaffold: "老師對不起，因為 ＿＿＿ ，我下次會注意。" },
-            { id: 3, text: "上課要寫字時，我發現我忘了帶鉛筆盒。", emoji: "✏️", hint: "沒帶工具時，該怎麼辦呢？", scaffold: "同學/老師，我忘了帶鉛筆盒，請問可以 ＿＿＿ 嗎？" },
-            { id: 4, text: "老師叫我上台發表，但我好害羞，不敢看大家。", emoji: "🫣", hint: "心裡很緊張的時候，可以做什麼動作？", scaffold: "我可以深呼吸，或是看著 ＿＿＿ 發表。" },
-            { id: 5, text: "下課排隊玩溜滑梯，前面的同學動作好慢喔。", emoji: "⏳", hint: "等待時，心裡可以想些什麼？", scaffold: "沒關係，我可以先 ＿＿＿ 安靜等待。" },
-            { id: 6, text: "同學不小心撞到我，他趕快跟我說對不起。", emoji: "🕊️", hint: "對方道歉了，你會怎麼回應他？", scaffold: "沒關係，你下次要 ＿＿＿ 喔！" },
-            { id: 7, text: "教室裡面突然好吵好大聲，我覺得耳朵痛痛的。", emoji: "🙉", hint: "覺得不舒服時，你會怎麼尋求幫忙？", scaffold: "老師，我覺得耳朵不舒服，可以 ＿＿＿ 嗎？" },
-            { id: 8, text: "我畫了一張好漂亮的畫，老師把它貼在公佈欄給大家看。", emoji: "🖼️", hint: "被稱讚的時候，你現在的心情是...", scaffold: "我覺得很 ＿＿＿ ，謝謝大家的稱讚！" },
-            { id: 9, text: "午餐的湯不小心灑在衣服上了，濕濕黏黏的。", emoji: "🥣", hint: "衣服髒了很不舒服，該怎麼解決呢？", scaffold: "老師，我的衣服弄髒了，請問可以 ＿＿＿ 嗎？" },
-            { id: 10, text: "同學跟我借彩色筆，我也借給他一起用。", emoji: "🖍️", hint: "分享東西給別人，你覺得現在的心情是...", scaffold: "我覺得很 ＿＿＿ ，因為我幫助了同學。" }
-        ];
-
-        function App() {
-            const [user, setUser] = useState(null);
-            const [gameState, setGameState] = useState('CHARACTER_SELECT'); 
-            const [selectedCharacter, setSelectedCharacter] = useState(null);
-            const [currentLevelIdx, setCurrentLevelIdx] = useState(0);
-            const [isListening, setIsListening] = useState(false);
-            const [transcript, setTranscript] = useState('');
-            const [allProgress, setAllProgress] = useState({});
-            const [currentTime, setCurrentTime] = useState('');
-
-            const recognitionRef = useRef(null);
-
-            // 1. 初始化 Firebase
-            useEffect(() => {
-                const init = async () => {
-                    await auth.signInAnonymously();
-                };
-                init();
-                const unsub = auth.onAuthStateChanged(u => setUser(u));
-                return () => unsub();
-            }, []);
-
-            // 2. 監聽數據
-            useEffect(() => {
-                if (!user) return;
-                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary');
-                
-                return docRef.onSnapshot((snap) => {
-                    if (snap.exists) {
-                        setAllProgress(snap.data().students || {});
-                    } else {
-                        const init = {};
-                        CHARACTERS.forEach(c => init[c] = { completed: [], records: {} });
-                        setAllProgress(init);
-                    }
-                }, (err) => console.error("Firestore Listen error", err));
-            }, [user]);
-
-            // 3. 時鐘與語音初始化 (設定 continuous = true)
-            useEffect(() => {
-                const tick = () => {
-                    const now = new Date();
-                    setCurrentTime(`${now.getHours() >= 12 ? '下午' : '上午'} ${now.getHours() % 12 || 12}:${now.getMinutes().toString().padStart(2, '0')}`);
-                };
-                tick();
-                const timer = setInterval(tick, 10000);
-
-                const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (SR) {
-                    recognitionRef.current = new SR();
-                    recognitionRef.current.lang = 'zh-TW';
-                    // 關鍵修正：設為 true，需要手動停止
-                    recognitionRef.current.continuous = true; 
-                    recognitionRef.current.interimResults = true;
-
-                    recognitionRef.current.onresult = (e) => {
-                        let finalResult = '';
-                        for (let i = 0; i < e.results.length; ++i) {
-                            finalResult += e.results[i][0].transcript;
-                        }
-                        setTranscript(finalResult);
-                    };
-                    recognitionRef.current.onerror = () => setIsListening(false);
-                    recognitionRef.current.onend = () => setIsListening(false);
-                }
-                return () => clearInterval(timer);
-            }, []);
-
-            // --- 核心功能 ---
-            const saveToCloud = async (textToSave) => {
-                if (!user || !selectedCharacter) return;
-                
-                const charData = allProgress[selectedCharacter] || { completed: [], records: {} };
-                const newCompleted = [...new Set([...(charData.completed || []), currentLevelIdx])];
-                const updatedRecords = { ...(charData.records || {}), [currentLevelIdx]: textToSave };
-                
-                const newData = {
-                    ...allProgress,
-                    [selectedCharacter]: {
-                        completed: newCompleted,
-                        records: updatedRecords
-                    }
-                };
-
-                try {
-                    const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary');
-                    await docRef.set({ students: newData }, { merge: true });
-                    setGameState('LEVEL_SELECT');
-                } catch (e) {
-                    console.error("Save error", e);
-                }
-            };
-
-            const handleDeleteRecord = async (charName, levelIdxToDelete) => {
-                if (!user) return;
-                const charData = allProgress[charName] || { completed: [], records: {} };
-                
-                const newCompleted = charData.completed.filter(idx => idx !== levelIdxToDelete);
-                const newRecords = { ...charData.records };
-                delete newRecords[levelIdxToDelete];
-
-                const newData = {
-                    ...allProgress,
-                    [charName]: {
-                        completed: newCompleted,
-                        records: newRecords
-                    }
-                };
-
-                setAllProgress(newData);
-
-                try {
-                    const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary');
-                    await docRef.set({ students: newData });
-                    
-                    if (gameState === 'PLAYING' && charName === selectedCharacter && levelIdxToDelete === currentLevelIdx) {
-                        setTranscript('');
-                    }
-                } catch (e) {
-                    console.error("Delete error", e);
-                }
-            };
-
-            // 錄音切換 (手動開關)
-            const toggleListening = () => {
-                if (isListening) {
-                    recognitionRef.current.stop();
-                    setIsListening(false);
-                } else {
-                    setTranscript('');
-                    recognitionRef.current.start();
-                    setIsListening(true);
-                }
-            };
-
-            const CharacterAvatar = ({ name, className = "w-28 h-28" }) => {
-                const char = CHARACTER_DATA.find(c => c.name === name);
-                const [err, setErr] = useState(false);
-                return (
-                    <div className={`${className} rounded-full overflow-hidden border-4 border-white shadow-inner bg-indigo-50 flex items-center justify-center`}>
-                        {!err && char?.img ? <img src={char.img} className="w-full h-full object-cover" onError={() => setErr(true)} /> : <span className="text-3xl text-indigo-200 font-bold">{name[0]}</span>}
-                    </div>
-                );
-            };
-
-            const StarsDisplay = ({ count }) => (
-                <div className="flex flex-wrap justify-center gap-1 mt-2">
-                    {[...Array(10)].map((_, i) => (
-                        <span key={i} className={`text-xl transition-all ${i < count ? 'text-yellow-400 star-animate' : 'text-slate-200'}`}>★</span>
-                    ))}
+        // ── 子元件 ─────────────────────────────────────────────────────
+        const CharacterAvatar = ({ name, className="w-28 h-28" }) => {
+            const char = CHARACTER_DATA.find(c=>c.name===name);
+            const [err,setErr] = useState(false);
+            return (
+                <div className={`${className} rounded-full overflow-hidden border-4 border-white shadow-inner bg-indigo-50 flex items-center justify-center`}>
+                    {!err && char?.img
+                        ? <img src={char.img} className="w-full h-full object-cover" onError={()=>setErr(true)}/>
+                        : <span className="text-3xl text-indigo-200 font-bold">{name[0]}</span>}
                 </div>
             );
+        };
 
-            return (
-                <div className="h-full w-full flex flex-col relative overflow-hidden">
-                    {/* 進度條 */}
-                    {(gameState === 'PLAYING' || gameState === 'LEVEL_SELECT') && (
-                        <div className="w-full h-8 bg-white shadow-sm overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-1000" style={{ width: `${((allProgress[selectedCharacter]?.completed?.length || 0) / 10) * 100}%` }} />
+        const StarsDisplay = ({ count }) => (
+            <div className="flex flex-wrap justify-center gap-1 mt-2">
+                {[...Array(10)].map((_,i)=>(
+                    <span key={i} className={`text-xl transition-all ${i<count?'text-yellow-400 star-animate':'text-slate-200'}`}>★</span>
+                ))}
+            </div>
+        );
+
+        // 方案提示卡（無朗讀鈕）
+        const HintCards = ({ hints }) => (
+            <div className="flex gap-4 w-full">
+                {hints.map((h,i)=>(
+                    <div key={i} className={`flex-1 rounded-[2.5rem] p-5 border-4 flex flex-col gap-2 shadow-sm
+                        ${i===0?'hint-a bg-orange-50 border-orange-200':'hint-b bg-teal-50 border-teal-200'}`}>
+                        <div className={`flex items-center gap-2 font-black text-xl ${i===0?'text-orange-500':'text-teal-600'}`}>
+                            <span className="text-2xl">{h.icon}</span><span>{h.label}</span>
+                        </div>
+                        <p className={`font-bold text-2xl leading-snug ${i===0?'text-orange-800':'text-teal-800'}`}>{h.text}</p>
+                    </div>
+                ))}
+            </div>
+        );
+
+        // 鷹架句首提示條
+        const ScaffoldBar = ({ chips }) => (
+            <div className="w-full">
+                <p className="text-slate-400 font-black text-lg mb-2 flex items-center gap-2">
+                    <span>🪜</span> 說話鷹架（點一下填入句首）
+                </p>
+                <div className="flex flex-wrap gap-3">
+                    {chips.map((chip,i)=>(
+                        <button key={i} onClick={()=>insertScaffold(chip)}
+                            className="scaffold-chip bg-violet-50 border-2 border-violet-200 text-violet-700 font-black text-xl px-5 py-2 rounded-2xl shadow-sm hover:bg-violet-100 active:scale-95 transition-all"
+                            style={{animationDelay:`${i*0.06}s`}}>
+                            {chip}
+                        </button>
+                    ))}
+                </div>
+            </div>
+        );
+
+        // ── 主畫面 ─────────────────────────────────────────────────────
+        return (
+            <div className="h-full w-full flex flex-col relative overflow-hidden bg-slate-50">
+
+                {/* 進度條 */}
+                {(gameState==='PLAYING'||gameState==='LEVEL_SELECT') && (
+                    <div className="w-full h-4 bg-white shadow-sm overflow-hidden z-10">
+                        <div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-1000"
+                            style={{width:`${((allProgress[selectedCharacter]?.completed?.length||0)/10)*100}%`}}/>
+                    </div>
+                )}
+
+                <div className="flex-grow overflow-hidden relative">
+
+                    {/* ── 1. 選人大廳 ── */}
+                    {gameState==='CHARACTER_SELECT' && (
+                        <div className="h-full flex flex-col items-center justify-between py-10 px-12 bg-gradient-to-br from-indigo-50 to-white">
+                            <div className="text-center">
+                                <h2 className="text-5xl font-black text-slate-800 tracking-widest mt-4">誰要來接受挑戰？</h2>
+                                <p className="text-slate-400 font-bold mt-2 text-xl">點擊同學照片即可進入「冒險地圖」</p>
+                            </div>
+                            <div className="grid grid-cols-4 gap-8 w-full max-w-6xl">
+                                {CHARACTER_DATA.map(char=>(
+                                    <div key={char.name}
+                                        className="bg-white p-6 rounded-[3.5rem] shadow-lg border-[8px] border-white hover:border-indigo-100 transition-all flex flex-col items-center justify-center min-h-[230px] cursor-pointer active:scale-95"
+                                        onClick={()=>{setSelectedCharacter(char.name);setGameState('LEVEL_SELECT');}}>
+                                        <CharacterAvatar name={char.name}/>
+                                        <span className="text-4xl font-black text-slate-700 mt-2">{char.name}</span>
+                                        <StarsDisplay count={allProgress[char.name]?.completed?.length||0}/>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="w-full flex justify-center pb-6">
+                                <button onClick={()=>{setSelectedCharacter(null);setGameState('SUMMARY');}}
+                                    className="bg-indigo-600 text-white px-16 py-6 rounded-[3rem] font-black text-3xl active:scale-95 shadow-xl hover:bg-indigo-700 transition-colors">
+                                    📊 檢視全班總結看板
+                                </button>
+                            </div>
                         </div>
                     )}
 
-                    <div className="flex-grow overflow-hidden relative">
-                        {/* 1. 首頁 */}
-                        {gameState === 'CHARACTER_SELECT' && (
-                            <div className="h-full flex flex-col items-center justify-between py-10 px-12 bg-gradient-to-br from-indigo-50 to-white">
-                                <div className="text-center"><h2 className="text-5xl font-black text-slate-800 tracking-widest mt-4">誰要來接受挑戰？</h2><p className="text-slate-400 font-bold mt-2 italic">點擊相片即可進入「冒險地圖」</p></div>
-                                <div className="grid grid-cols-4 gap-6 w-full max-w-6xl">
-                                    {CHARACTER_DATA.map((char) => (
-                                        <div key={char.name} className="bg-white p-6 rounded-[3.5rem] shadow-lg border-[8px] border-white hover:border-indigo-100 transition-all flex flex-col items-center justify-center min-h-[230px] cursor-pointer active:scale-95" 
-                                             onClick={() => { setSelectedCharacter(char.name); setGameState('LEVEL_SELECT'); }}>
-                                            <CharacterAvatar name={char.name} />
-                                            <span className="text-4xl font-black text-slate-700 mt-2">{char.name}</span>
-                                            <StarsDisplay count={allProgress[char.name]?.completed?.length || 0} />
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="w-full flex justify-center pb-6">
-                                    <button onClick={() => { setSelectedCharacter(null); setGameState('SUMMARY'); }} className="bg-white border-2 border-slate-200 text-slate-400 px-16 py-6 rounded-[3rem] font-black text-3xl active:scale-95 shadow-xl">📊 紀錄總覽回顧</button>
-                                </div>
+                    {/* ── 2. 紀錄看板 ── */}
+                    {gameState==='SUMMARY' && (
+                        <div className="h-full p-8 overflow-hidden flex flex-col">
+                            <div className="flex items-center justify-between mb-6 px-4">
+                                <button onClick={()=>setGameState('CHARACTER_SELECT')}
+                                    className="text-3xl font-black text-indigo-600 bg-white px-10 py-4 rounded-[2.5rem] shadow-md active:scale-95">← 返回首頁</button>
+                                <h2 className="text-5xl font-black text-slate-800">全班發表紀錄回顧</h2>
+                                <div className="w-40"/>
                             </div>
-                        )}
-
-                        {/* 2. 紀錄看板 */}
-                        {gameState === 'SUMMARY' && (
-                            <div className="h-full bg-slate-50 p-8 overflow-hidden flex flex-col">
-                                <div className="flex items-center justify-between mb-8 px-4"><button onClick={() => setGameState('CHARACTER_SELECT')} className="text-3xl font-black text-indigo-600 bg-white px-10 py-5 rounded-[2.5rem] shadow-md active:scale-95">← 返回首頁</button><h2 className="text-5xl font-black text-slate-800">全班冒險紀錄總表</h2><div className="w-40" /></div>
-                                <div className="flex-grow overflow-y-auto no-scrollbar pb-24 px-4"><div className="grid gap-8 max-w-5xl mx-auto">
-                                    {(selectedCharacter ? [selectedCharacter] : CHARACTERS).map(name => (
+                            <div className="flex-grow overflow-y-auto no-scrollbar pb-24 px-4">
+                                <div className="grid gap-8 max-w-5xl mx-auto">
+                                    {(selectedCharacter?[selectedCharacter]:CHARACTERS).map(name=>(
                                         <div key={name} className="bg-white rounded-[4rem] p-10 shadow-xl border-2 border-indigo-50">
                                             <div className="flex items-center justify-between border-b-4 border-slate-50 pb-6 mb-6">
-                                                <div className="flex items-center gap-6"><CharacterAvatar name={name} className="w-24 h-24" /><span className="text-5xl font-black text-slate-800">{name}</span></div>
-                                                <span className="text-yellow-500 font-black text-4xl italic">★ {allProgress[name]?.completed?.length || 0}</span>
+                                                <div className="flex items-center gap-6">
+                                                    <CharacterAvatar name={name} className="w-20 h-20"/>
+                                                    <span className="text-5xl font-black text-slate-800">{name}</span>
+                                                </div>
+                                                <span className="text-yellow-500 font-black text-4xl italic">★ {allProgress[name]?.completed?.length||0} 關</span>
                                             </div>
                                             <div className="grid gap-6">
-                                                {allProgress[name]?.completed?.length > 0 ? allProgress[name].completed.sort((a,b)=>a-b).map(idx => (
-                                                    <div key={idx} className="bg-indigo-50/50 p-8 rounded-[3rem] flex flex-col gap-4">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-4 text-3xl font-black text-indigo-600"><span>{SCENARIOS[idx].emoji}</span> 第 {idx + 1} 關</div>
-                                                            <button 
-                                                                onClick={() => handleDeleteRecord(name, idx)}
-                                                                className="bg-red-100 hover:bg-red-500 text-red-500 hover:text-white px-6 py-2 rounded-2xl font-bold text-xl transition-colors shadow-sm flex items-center gap-2"
-                                                            >
-                                                                🗑️ 刪除紀錄
-                                                            </button>
+                                                {allProgress[name]?.completed?.length>0
+                                                    ? allProgress[name].completed.sort((a,b)=>a-b).map(idx=>(
+                                                        <div key={idx} className="bg-indigo-50/50 p-8 rounded-[3rem] flex flex-col gap-4">
+                                                            <div className="flex items-center gap-4 text-3xl font-black text-indigo-600">
+                                                                <span>{SCENARIOS[idx].emoji}</span> 第 {idx+1} 關
+                                                            </div>
+                                                            <p className="text-2xl text-slate-500 font-bold">{SCENARIOS[idx].text}</p>
+                                                            <p className="text-4xl font-black text-slate-700 bg-white p-6 rounded-[2rem] shadow-sm leading-relaxed">
+                                                                「{allProgress[name].records[idx]}」
+                                                            </p>
                                                         </div>
-                                                        <p className="text-4xl font-black text-slate-700 bg-white p-6 rounded-[2rem] shadow-sm leading-relaxed">「{allProgress[name].records[idx]}」</p>
-                                                    </div>
-                                                )) : <p className="text-center text-slate-300 py-10 text-3xl font-bold italic">目前尚未有存檔紀錄</p>}
+                                                    ))
+                                                    : <p className="text-center text-slate-300 py-6 text-3xl font-bold italic">目前尚未有存檔紀錄</p>}
                                             </div>
                                         </div>
                                     ))}
-                                </div></div>
-                            </div>
-                        )}
-
-                        {/* 3. 選關地圖 */}
-                        {gameState === 'LEVEL_SELECT' && (
-                            <div className="h-full flex flex-col items-center p-8 bg-slate-50 overflow-hidden">
-                                <div className="flex items-center justify-between w-full max-w-7xl mb-8 px-4">
-                                    <button onClick={() => setGameState('CHARACTER_SELECT')} className="text-3xl font-black text-slate-400 px-8 py-4 active:scale-95">← 重選挑戰者</button>
-                                    <h2 className="text-5xl font-black text-slate-800 flex items-center gap-6"><CharacterAvatar name={selectedCharacter} className="w-24 h-24" /><span className="text-indigo-600 underline underline-offset-8 decoration-indigo-200">{selectedCharacter}</span> 的冒險地圖</h2>
-                                    <button onClick={() => setGameState('SUMMARY')} className="bg-indigo-50 text-indigo-600 px-10 py-5 rounded-[2rem] font-black text-2xl shadow-sm active:scale-95">📜 歷史回顧</button>
-                                </div>
-                                <div className="grid grid-cols-5 gap-8 w-full max-w-7xl flex-grow content-center">
-                                    {SCENARIOS.map((s, idx) => (
-                                        <button key={s.id} onClick={() => { setCurrentLevelIdx(idx); setGameState('PLAYING'); setTranscript(allProgress[selectedCharacter]?.records?.[idx] || ''); }} 
-                                            className={`relative h-60 rounded-[4.5rem] flex flex-col items-center justify-center gap-3 transition-all shadow-xl border-[10px] active:scale-90 ${allProgress[selectedCharacter]?.completed?.includes(idx) ? 'bg-green-50 border-green-400 text-green-700' : 'bg-white border-white hover:border-indigo-200'}`}>
-                                            <span className="text-8xl">{s.emoji}</span><span className="font-black text-3xl">第 {idx+1} 關</span>
-                                            {allProgress[selectedCharacter]?.completed?.includes(idx) && <div className="absolute top-4 right-4 text-green-500"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>}
-                                        </button>
-                                    ))}
                                 </div>
                             </div>
-                        )}
+                        </div>
+                    )}
 
-                        {/* 4. 遊玩面 */}
-                        {gameState === 'PLAYING' && (
-                            <div className="h-full flex flex-col items-center justify-center p-6 bg-indigo-50 overflow-hidden">
-                                <div className="w-full max-w-[95vw] flex justify-between items-center mb-2 px-6">
-                                    <button onClick={() => setGameState('LEVEL_SELECT')} className="text-2xl font-bold text-indigo-600 bg-white px-10 py-4 rounded-3xl shadow-md active:bg-slate-50">← 返回地圖</button>
-                                    <div className="flex items-center gap-4 bg-white/80 px-8 py-3 rounded-full border border-white shadow-sm"><CharacterAvatar name={selectedCharacter} className="w-14 h-14" /><span className="font-black text-3xl text-slate-700">{selectedCharacter}</span></div>
+                    {/* ── 3. 選關地圖 ── */}
+                    {gameState==='LEVEL_SELECT' && (
+                        <div className="h-full flex flex-col items-center p-8 overflow-hidden">
+                            <div className="flex items-center justify-between w-full max-w-7xl mb-8 px-4">
+                                <button onClick={()=>setGameState('CHARACTER_SELECT')}
+                                    className="text-3xl font-black text-slate-400 bg-white px-8 py-4 rounded-[2rem] shadow-sm active:scale-95">← 回選單</button>
+                                <h2 className="text-5xl font-black text-slate-800 flex items-center gap-6">
+                                    <CharacterAvatar name={selectedCharacter} className="w-24 h-24"/>
+                                    <span className="text-indigo-600 underline underline-offset-8 decoration-indigo-200">{selectedCharacter}</span> 的冒險地圖
+                                </h2>
+                                <button onClick={()=>setGameState('SUMMARY')}
+                                    className="bg-indigo-100 text-indigo-600 px-10 py-4 rounded-[2rem] font-black text-2xl shadow-sm active:scale-95">📜 個人歷史</button>
+                            </div>
+                            <div className="grid grid-cols-5 gap-6 w-full max-w-7xl flex-grow content-center">
+                                {SCENARIOS.map((s,idx)=>(
+                                    <button key={s.id}
+                                        onClick={()=>{setCurrentLevelIdx(idx);setGameState('PLAYING');setTranscript(allProgress[selectedCharacter]?.records?.[idx]||'');}}
+                                        className={`relative h-[13rem] rounded-[4rem] flex flex-col items-center justify-center gap-3 transition-all shadow-xl border-[10px] active:scale-95
+                                            ${allProgress[selectedCharacter]?.completed?.includes(idx)
+                                                ?'bg-green-50 border-green-400 text-green-700'
+                                                :'bg-white border-white hover:border-indigo-200'}`}>
+                                        <span className="text-[5.5rem] leading-none">{s.emoji}</span>
+                                        <span className="font-black text-2xl">第 {idx+1} 關</span>
+                                        {allProgress[selectedCharacter]?.completed?.includes(idx) && (
+                                            <div className="absolute top-4 right-4 text-green-500">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                            </div>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── 4. 遊玩畫面 ── */}
+                    {gameState==='PLAYING' && (
+                        <div className="h-full flex flex-col items-center justify-center p-4 overflow-hidden">
+
+                            {/* 頂列 */}
+                            <div className="w-full max-w-[97vw] flex justify-between items-center mb-2 px-2">
+                                <button onClick={()=>{setIsListening(false);try{recognitionRef.current?.stop();}catch(e){} setGameState('LEVEL_SELECT');}}
+                                    className="text-2xl font-bold text-indigo-600 bg-white px-8 py-3 rounded-2xl shadow-md active:scale-95">← 返回地圖</button>
+                                <div className="flex items-center gap-4 bg-white px-6 py-2 rounded-full border-2 border-indigo-50 shadow-sm">
+                                    <CharacterAvatar name={selectedCharacter} className="w-12 h-12"/>
+                                    <span className="font-black text-2xl text-slate-700">{selectedCharacter} 的挑戰</span>
+                                </div>
+                            </div>
+
+                            {/* 主卡片 */}
+                            <div className="bg-white rounded-[4rem] shadow-2xl overflow-hidden w-full max-w-[97vw] flex flex-1 max-h-[82vh] border-b-[18px] border-indigo-200">
+
+                                {/* ── 左側：關卡色塊 ── */}
+                                <div className="w-[22%] bg-indigo-600 flex flex-col items-center justify-center p-6 text-center text-white flex-shrink-0">
+                                    <div className="text-[9rem] mb-4 drop-shadow-2xl">{SCENARIOS[currentLevelIdx].emoji}</div>
+                                    <div className="bg-white/20 px-6 py-2 rounded-full text-2xl font-black">LEVEL {currentLevelIdx+1}</div>
                                 </div>
 
-                                <div className="bg-white rounded-[5rem] shadow-2xl overflow-hidden w-full max-w-[95vw] flex flex-1 max-h-[75vh] border-b-[24px] border-indigo-200">
-                                    <div className="w-[35%] bg-indigo-600 flex flex-col items-center justify-center p-8 text-center text-white relative">
-                                        <div className="text-[18rem] mb-8 drop-shadow-2xl">{SCENARIOS[currentLevelIdx].emoji}</div>
-                                        <div className="bg-white/20 px-10 py-4 rounded-full text-4xl font-black uppercase tracking-widest">LEVEL {currentLevelIdx + 1}</div>
+                                {/* ── 右側：內容區 ── */}
+                                <div className="flex-1 p-6 flex flex-col gap-3 overflow-hidden">
+
+                                    {/* 情境文字 */}
+                                    <div className="bg-slate-50 rounded-[2.5rem] p-5 border-4 border-slate-100 flex-shrink-0">
+                                        <h3 className="text-[1.65rem] font-black text-gray-700 leading-snug text-center">
+                                            「{SCENARIOS[currentLevelIdx].text}」
+                                        </h3>
                                     </div>
-                                    <div className="w-[65%] p-10 flex flex-col justify-between items-center overflow-hidden">
-                                        
-                                        <div className="bg-slate-50 rounded-[4rem] p-8 border-4 border-slate-100 w-full text-center shadow-inner mb-4">
-                                            <h3 className="text-4xl font-black text-gray-700 leading-snug">「{SCENARIOS[currentLevelIdx].text}」</h3>
-                                        </div>
-                                        
-                                        <div className="flex flex-col items-center gap-4 w-full">
-                                            <div className="bg-yellow-50 px-8 py-3 rounded-[2rem] w-full border-2 border-yellow-200 text-center shadow-sm">
-                                                <p className="text-indigo-800 font-bold text-2xl mb-1">{SCENARIOS[currentLevelIdx].hint}</p>
-                                                <p className="text-yellow-700 font-black text-3xl">可以這樣說：{SCENARIOS[currentLevelIdx].scaffold}</p>
-                                            </div>
 
-                                            <div className="flex items-center gap-10 bg-indigo-50/50 p-6 rounded-[4rem] border-2 border-indigo-100 w-full justify-center shadow-sm">
-                                                <button onClick={toggleListening} className={`relative w-36 h-36 rounded-full flex items-center justify-center transition-all duration-300 ${isListening ? 'bg-red-500 scale-110 shadow-[0_0_60px_rgba(239,68,68,0.7)] animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700 shadow-xl active:scale-90'}`}>
-                                                    <div className="text-white relative z-10 scale-[2]">
-                                                        {isListening ? (
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg>
-                                                        ) : (
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-                                                        )}
-                                                    </div>
-                                                </button>
-                                                <div className="text-left">
-                                                    <p className={`text-5xl font-black ${isListening ? 'text-red-500' : 'text-slate-500'}`}>
-                                                        {isListening ? "錄音中... 點擊停止" : "點擊開始錄音"}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
+                                    {/* 方案一 ＆ 方案二 */}
+                                    <div className="flex-shrink-0">
+                                        <p className="text-slate-400 font-black text-lg text-center mb-2">💡 參考方案（選一個用自己的話說說看）</p>
+                                        <HintCards hints={SCENARIOS[currentLevelIdx].hints}/>
+                                    </div>
 
-                                        <div className="h-[220px] w-full flex flex-col items-center justify-center text-center gap-4 mt-2">
-                                            <div className="bg-white w-full px-10 py-6 rounded-[3.5rem] border-[10px] border-indigo-200 shadow-2xl flex flex-col gap-2 relative">
-                                                <div className="flex items-center justify-between border-b-2 border-slate-50 pb-2 mb-2">
-                                                    <p className="text-indigo-400 text-2xl font-black flex items-center gap-2">💬 學生的敘述：</p>
-                                                    {allProgress[selectedCharacter]?.completed?.includes(currentLevelIdx) && (
-                                                        <button 
-                                                            onClick={() => handleDeleteRecord(selectedCharacter, currentLevelIdx)}
-                                                            className="bg-red-100 hover:bg-red-500 text-red-500 hover:text-white px-5 py-2 rounded-xl font-bold text-lg transition-colors shadow-sm flex items-center gap-2"
-                                                        >
-                                                            🗑️ 刪除重答
-                                                        </button>
-                                                    )}
-                                                </div>
-                                                <textarea className="w-full text-5xl font-black text-indigo-900 text-center bg-transparent border-none focus:ring-0 resize-none h-24 no-scrollbar leading-relaxed" 
-                                                          value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="等待輸入中..." />
+                                    {/* 鷹架句首 */}
+                                    <div className="flex-shrink-0">
+                                        <ScaffoldBar chips={SCENARIOS[currentLevelIdx].scaffolds}/>
+                                    </div>
+
+                                    {/* 問題 */}
+                                    <p className="text-indigo-600 font-black text-2xl text-center flex-shrink-0">
+                                        {SCENARIOS[currentLevelIdx].question}
+                                    </p>
+
+                                    {/* 錄音 / 編輯區 */}
+                                    <div className="flex flex-col flex-1 gap-3 min-h-0">
+
+                                        {/* 文字框（只要 isListening 或有文字就顯示） */}
+                                        {(isListening || transcript) && (
+                                            <div className="bg-indigo-50/60 flex-1 rounded-[2rem] border-[5px] border-indigo-200 shadow-inner flex flex-col min-h-0 p-4">
+                                                <p className="text-indigo-500 text-lg font-black mb-2 flex items-center gap-2">
+                                                    💬 我的回答
+                                                    {isListening && <span className="text-red-500 animate-pulse">● 錄音中</span>}
+                                                </p>
+                                                <textarea
+                                                    className="w-full flex-1 text-3xl font-black text-indigo-900 text-center bg-transparent border-none focus:ring-0 resize-none no-scrollbar leading-normal"
+                                                    value={transcript}
+                                                    onChange={e=>setTranscript(e.target.value)}
+                                                    placeholder="錄音中或用鷹架句首輸入⋯⋯"/>
                                             </div>
-                                            {transcript.length > 0 && !isListening && (
-                                                <button onClick={() => saveToCloud(transcript)} className="bg-green-500 hover:bg-green-600 text-white font-black py-6 px-20 rounded-[3rem] text-4xl shadow-xl active:scale-95 transition-all flex items-center gap-6 shadow-[0_10px_40px_rgba(34,197,94,0.4)]">
-                                                    確認發表並存入雲端
+                                        )}
+
+                                        {/* 麥克風控制 列 */}
+                                        <div className="flex gap-4 flex-shrink-0">
+
+                                            {/* 錄音按鈕：按一下開始，再按一下停止 */}
+                                            <button onClick={toggleListening}
+                                                className={`flex items-center gap-4 px-8 py-5 rounded-[2.5rem] font-black text-3xl shadow-xl transition-all active:scale-95 flex-1
+                                                    ${isListening
+                                                        ? 'bg-red-500 text-white mic-active'
+                                                        : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                    {isListening
+                                                        ? <><rect x="6" y="6" width="12" height="12" rx="2"/></>
+                                                        : <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></>}
+                                                </svg>
+                                                {isListening ? '按我停止錄音 ■' : (transcript ? '重新錄音' : '按我開始說話 ●')}
+                                            </button>
+
+                                            {/* 儲存：只在有文字且沒在錄音時顯示 */}
+                                            {!isListening && transcript && (
+                                                <button onClick={()=>saveToCloud(transcript)}
+                                                    className="flex items-center gap-3 px-8 py-5 bg-green-500 hover:bg-green-600 text-white font-black rounded-[2.5rem] text-3xl shadow-[0_8px_24px_rgba(34,197,94,0.4)] active:scale-95 transition-all">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                                    確認儲存
                                                 </button>
                                             )}
                                         </div>
+
                                     </div>
                                 </div>
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
-                    <div className="h-20 bg-white flex items-center justify-between px-20 border-t-2 border-slate-100 z-50 shadow-inner">
-                         <div className="bg-indigo-600 text-white px-10 py-3 rounded-2xl font-black text-4xl tabular-nums shadow-lg">{currentTime}</div>
-                         <span className="text-slate-200 font-black tracking-[1.2em] text-xl uppercase hidden lg:inline tracking-tighter">Emotion Adventure • Cloud Data Persistence</span>
-                         <div className="bg-indigo-50 px-10 py-3 rounded-2xl font-black text-indigo-400 text-3xl shadow-inner">
-                             {selectedCharacter ? `${selectedCharacter} 過關：${allProgress[selectedCharacter]?.completed?.length || 0}/10` : "準備開始挑戰"}
-                         </div>
+                </div>
+
+                {/* 底部狀態列 */}
+                <div className="h-16 bg-white flex items-center justify-between px-16 border-t-4 border-slate-100 z-50">
+                    <div className="bg-indigo-600 text-white px-8 py-1.5 rounded-2xl font-black text-2xl tabular-nums shadow-sm">{currentTime}</div>
+                    <span className="text-slate-300 font-black text-lg hidden lg:inline">Emotion Adventure • Dual Engine</span>
+                    <div className="bg-indigo-50 px-8 py-1.5 rounded-2xl font-black text-indigo-400 text-xl shadow-inner">
+                        {selectedCharacter?`${selectedCharacter} 已完成：${allProgress[selectedCharacter]?.completed?.length||0}/10`:"等待同學挑戰"}
                     </div>
                 </div>
-            );
-        }
+            </div>
+        );
+    }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App/>);
+</script>
 </body>
 </html>
