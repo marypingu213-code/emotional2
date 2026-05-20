@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>情緒大冒險 - 互動點名與雙軌紀錄</title>
+    <title>情緒大冒險 - 互動點名與永久紀錄</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -15,17 +15,25 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-        body, html { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; font-family: 'Noto Sans TC', sans-serif; background-color: #F8FAFC; user-select: none; touch-action: none; }
+        
+        body, html { 
+            margin: 0; padding: 0; height: 100vh; width: 100vw; 
+            overflow: hidden; 
+            font-family: 'Noto Sans TC', sans-serif; 
+            background-color: #F8FAFC;
+            user-select: none;
+            touch-action: none;
+        }
         #root { height: 100%; width: 100%; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        @keyframes star-pop { 0% { transform: scale(0); } 80% { transform: scale(1.3); } 100% { transform: scale(1); } }
+
+        @keyframes star-pop {
+            0% { transform: scale(0); }
+            80% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
         .star-animate { animation: star-pop 0.5s ease-out forwards; }
-        @keyframes hint-slide { 0% { opacity:0; transform: translateY(12px); } 100% { opacity:1; transform: translateY(0); } }
-        .hint-a { animation: hint-slide 0.35s ease-out 0.1s both; }
-        .hint-b { animation: hint-slide 0.35s ease-out 0.25s both; }
-        @keyframes speaker-pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
-        .speaking-btn { animation: speaker-pulse 0.7s ease-in-out infinite; }
     </style>
 </head>
 <body>
@@ -34,7 +42,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- Firebase 設定 ---
+        // --- 1. Firebase 設定 ---
         const firebaseConfig = {
             apiKey: "AIzaSyBdioCJeP0FbZvX_opzhrgsgQ5OtQR5J_Y",
             authDomain: "emotionadventure-bca46.firebaseapp.com",
@@ -45,115 +53,42 @@
             measurementId: "G-D7WVZ0SQBL"
         };
 
+        // Initialize Firebase
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+        const appId = "emotion_adventure_v10";
+
         const CHARACTER_DATA = [
-            { name: "沄恩", img: "spic/1.jpg" }, { name: "澄洋", img: "spic/2.jpg" },
-            { name: "意欣", img: "spic/3.jpg" }, { name: "宇晴", img: "spic/4.jpg" },
-            { name: "齊安", img: "spic/5.jpg" }, { name: "欽銓", img: "spic/6.jpg" },
+            { name: "沄恩", img: "spic/1.jpg" },
+            { name: "澄洋", img: "spic/2.jpg" },
+            { name: "意欣", img: "spic/3.jpg" },
+            { name: "宇晴", img: "spic/4.jpg" },
+            { name: "齊安", img: "spic/5.jpg" },
+            { name: "欽銓", img: "spic/6.jpg" },
             { name: "盧楷", img: "spic/7.jpg" }
         ];
 
         const CHARACTERS = CHARACTER_DATA.map(c => c.name);
 
-        // ★ 全新情境 × 10，每關有兩個解決方向提示 ★
+        // 新增回答鷹架 (scaffold)
         const SCENARIOS = [
-            {
-                id: 1, emoji: "🚫",
-                text: "下課時我想加入同學的遊戲，但他們說「我們不要你」，我好難過。",
-                question: "碰到這種情況，你會怎麼做呢？",
-                hints: [
-                    { icon: "🌈", label: "方向一", text: "去找其他朋友，一起玩別的遊戲" },
-                    { icon: "💬", label: "方向二", text: "平靜地問：「我可以加入嗎？」" }
-                ]
-            },
-            {
-                id: 2, emoji: "😤",
-                text: "我和好朋友因為一點小事吵架了，我們現在都不說話。",
-                question: "要怎麼讓關係好起來呢？",
-                hints: [
-                    { icon: "🌬️", label: "方向一", text: "先深呼吸讓自己冷靜下來，給彼此一點空間" },
-                    { icon: "🤝", label: "方向二", text: "主動走過去說「對不起」或「我們和好吧」" }
-                ]
-            },
-            {
-                id: 3, emoji: "😢",
-                text: "考試卷發下來，我的成績很差，我覺得很沮喪想哭。",
-                question: "面對考不好的心情，你會怎麼處理？",
-                hints: [
-                    { icon: "💪", label: "方向一", text: "告訴自己「這次沒關係，下次更努力」" },
-                    { icon: "🔍", label: "方向二", text: "請爸媽或老師幫我找出哪裡還不懂" }
-                ]
-            },
-            {
-                id: 4, emoji: "😡",
-                text: "有同學一直嘲笑我的名字或外表，我覺得很生氣又很受傷。",
-                question: "被嘲笑的時候，你可以怎麼應對？",
-                hints: [
-                    { icon: "🛑", label: "方向一", text: "堅定地說：「請不要這樣說，我不喜歡。」" },
-                    { icon: "🧑‍🏫", label: "方向二", text: "告訴老師或其他信任的大人" }
-                ]
-            },
-            {
-                id: 5, emoji: "😰",
-                text: "我不小心打破了教室裡的東西，很害怕被老師責罵。",
-                question: "打破東西後，你覺得最好的做法是什麼？",
-                hints: [
-                    { icon: "🗣️", label: "方向一", text: "誠實地告訴老師發生了什麼事" },
-                    { icon: "🙏", label: "方向二", text: "先道歉，再問老師「我可以怎麼幫忙修好？」" }
-                ]
-            },
-            {
-                id: 6, emoji: "🤔",
-                text: "我看到一個同學在走廊被另一個同學推來推去，但我不知道該怎麼辦。",
-                question: "看到有人被欺負，你會怎麼做？",
-                hints: [
-                    { icon: "🚨", label: "方向一", text: "馬上跑去告訴老師或附近的大人" },
-                    { icon: "🏃", label: "方向二", text: "拉著被欺負的同學一起離開現場" }
-                ]
-            },
-            {
-                id: 7, emoji: "😖",
-                text: "老師誤會是我做的，但其實不是我，我覺得好委屈。",
-                question: "被誤解的時候，你要怎麼讓老師知道真相？",
-                hints: [
-                    { icon: "🕊️", label: "方向一", text: "等老師說完，再平靜地說明真相" },
-                    { icon: "👥", label: "方向二", text: "請當時看到的同學幫我說明情況" }
-                ]
-            },
-            {
-                id: 8, emoji: "🤕",
-                text: "體育課跑步時我跌倒了，膝蓋破皮很痛，眼眶紅紅的。",
-                question: "受傷的時候，你會怎麼求助？",
-                hints: [
-                    { icon: "📢", label: "方向一", text: "告訴老師或旁邊的同學「我受傷了，需要幫忙」" },
-                    { icon: "🧘", label: "方向二", text: "先不要亂動，坐著等大人過來幫忙" }
-                ]
-            },
-            {
-                id: 9, emoji: "😣",
-                text: "分組活動時，我沒有被任何一組選到，一個人站在那裡很尷尬。",
-                question: "沒人選你的時候，你會怎麼面對？",
-                hints: [
-                    { icon: "✋", label: "方向一", text: "鼓起勇氣問：「有沒有組可以讓我加入？」" },
-                    { icon: "🙋", label: "方向二", text: "舉手請老師幫忙安排分組" }
-                ]
-            },
-            {
-                id: 10, emoji: "🎁",
-                text: "同學帶了一個很酷的新玩具來學校，我非常想要玩，但那是他的。",
-                question: "很想玩別人的東西時，你會怎麼做？",
-                hints: [
-                    { icon: "🗨️", label: "方向一", text: "禮貌地問：「可以讓我玩一下嗎？」" },
-                    { icon: "🔄", label: "方向二", text: "想想自己有什麼也可以分享給對方" }
-                ]
-            }
+            { id: 1, text: "我和同學玩遊戲輸了，我覺得心裡酸酸的。", emoji: "🎮", hint: "輸掉遊戲時，你會怎麼跟自己說？", scaffold: "我覺得心裡酸酸的，下次我可以 ＿＿＿ 。" },
+            { id: 2, text: "今天早上我上課遲到了，進教室時看到大家都在看我。", emoji: "⏰", hint: "遲到的時候，你想跟老師說什麼？", scaffold: "老師對不起，因為 ＿＿＿ ，我下次會注意。" },
+            { id: 3, text: "上課要寫字時，我發現我忘了帶鉛筆盒。", emoji: "✏️", hint: "沒帶工具時，該怎麼辦呢？", scaffold: "同學/老師，我忘了帶鉛筆盒，請問可以 ＿＿＿ 嗎？" },
+            { id: 4, text: "老師叫我上台發表，但我好害羞，不敢看大家。", emoji: "🫣", hint: "心裡很緊張的時候，可以做什麼動作？", scaffold: "我可以深呼吸，或是看著 ＿＿＿ 發表。" },
+            { id: 5, text: "下課排隊玩溜滑梯，前面的同學動作好慢喔。", emoji: "⏳", hint: "等待時，心裡可以想些什麼？", scaffold: "沒關係，我可以先 ＿＿＿ 安靜等待。" },
+            { id: 6, text: "同學不小心撞到我，他趕快跟我說對不起。", emoji: "🕊️", hint: "對方道歉了，你會怎麼回應他？", scaffold: "沒關係，你下次要 ＿＿＿ 喔！" },
+            { id: 7, text: "教室裡面突然好吵好大聲，我覺得耳朵痛痛的。", emoji: "🙉", hint: "覺得不舒服時，你會怎麼尋求幫忙？", scaffold: "老師，我覺得耳朵不舒服，可以 ＿＿＿ 嗎？" },
+            { id: 8, text: "我畫了一張好漂亮的畫，老師把它貼在公佈欄給大家看。", emoji: "🖼️", hint: "被稱讚的時候，你現在的心情是...", scaffold: "我覺得很 ＿＿＿ ，謝謝大家的稱讚！" },
+            { id: 9, text: "午餐的湯不小心灑在衣服上了，濕濕黏黏的。", emoji: "🥣", hint: "衣服髒了很不舒服，該怎麼解決呢？", scaffold: "老師，我的衣服弄髒了，請問可以 ＿＿＿ 嗎？" },
+            { id: 10, text: "同學跟我借彩色筆，我也借給他一起用。", emoji: "🖍️", hint: "分享東西給別人，你覺得現在的心情是...", scaffold: "我覺得很 ＿＿＿ ，因為我幫助了同學。" }
         ];
 
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const auth = firebase.auth();
-        const DB_COLLECTION = "ClassRecords_V12";
-
         function App() {
+            const [user, setUser] = useState(null);
             const [gameState, setGameState] = useState('CHARACTER_SELECT'); 
             const [selectedCharacter, setSelectedCharacter] = useState(null);
             const [currentLevelIdx, setCurrentLevelIdx] = useState(0);
@@ -161,76 +96,36 @@
             const [transcript, setTranscript] = useState('');
             const [allProgress, setAllProgress] = useState({});
             const [currentTime, setCurrentTime] = useState('');
-            const [speakingId, setSpeakingId] = useState(null); // tracks which TTS is active
-            
+
             const recognitionRef = useRef(null);
 
-            // ── TTS helpers ──────────────────────────────────────────────
-            const speak = (text, id) => {
-                if (!window.speechSynthesis) return;
-                // If same button clicked again → stop
-                if (speakingId === id) {
-                    window.speechSynthesis.cancel();
-                    setSpeakingId(null);
-                    return;
-                }
-                window.speechSynthesis.cancel();
-                const utter = new SpeechSynthesisUtterance(text);
-                utter.lang = 'zh-TW';
-                utter.rate = 0.88;
-                utter.pitch = 1.05;
-                // pick a zh-TW voice if available
-                const voices = window.speechSynthesis.getVoices();
-                const twVoice = voices.find(v => v.lang === 'zh-TW') || voices.find(v => v.lang.startsWith('zh'));
-                if (twVoice) utter.voice = twVoice;
-                utter.onstart = () => setSpeakingId(id);
-                utter.onend = () => setSpeakingId(null);
-                utter.onerror = () => setSpeakingId(null);
-                window.speechSynthesis.speak(utter);
-            };
-
-            // Speaker icon SVG
-            const SpeakerIcon = ({ active }) => active
-                ? <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-                : <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>;
-
-            const SpeakBtn = ({ text, id, size = "md" }) => {
-                const active = speakingId === id;
-                const sz = size === "lg" ? "px-6 py-3 text-2xl gap-3" : "px-4 py-2 text-lg gap-2";
-                return (
-                    <button onClick={() => speak(text, id)}
-                        className={`flex items-center rounded-2xl font-black border-2 transition-all active:scale-95 flex-shrink-0 ${sz}
-                            ${active ? 'speaking-btn bg-amber-400 border-amber-500 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-600 shadow-sm'}`}>
-                        <SpeakerIcon active={active} />
-                        <span>{active ? '停止' : '朗讀'}</span>
-                    </button>
-                );
-            };
-
+            // 1. 初始化 Firebase
             useEffect(() => {
-                auth.signInAnonymously().catch(e => console.warn("Firebase Auth bypassed"));
-
-                const localData = localStorage.getItem('emotion_adventure_data_v2');
-                if (localData) {
-                    try { setAllProgress(JSON.parse(localData)); } catch(e){}
-                } else {
-                    const init = {};
-                    CHARACTERS.forEach(c => init[c] = { completed: [], records: {} });
-                    setAllProgress(init);
-                }
-
-                const docRef = db.collection('GameData').doc(DB_COLLECTION);
-                const unsub = docRef.onSnapshot(snap => {
-                    if (snap.exists) {
-                        const remoteData = snap.data().students || {};
-                        setAllProgress(remoteData);
-                        localStorage.setItem('emotion_adventure_data_v2', JSON.stringify(remoteData));
-                    }
-                }, err => console.warn("Firebase offline, using local storage."));
-                
+                const init = async () => {
+                    await auth.signInAnonymously();
+                };
+                init();
+                const unsub = auth.onAuthStateChanged(u => setUser(u));
                 return () => unsub();
             }, []);
 
+            // 2. 監聽數據
+            useEffect(() => {
+                if (!user) return;
+                const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary');
+                
+                return docRef.onSnapshot((snap) => {
+                    if (snap.exists) {
+                        setAllProgress(snap.data().students || {});
+                    } else {
+                        const init = {};
+                        CHARACTERS.forEach(c => init[c] = { completed: [], records: {} });
+                        setAllProgress(init);
+                    }
+                }, (err) => console.error("Firestore Listen error", err));
+            }, [user]);
+
+            // 3. 時鐘與語音初始化 (設定 continuous = true)
             useEffect(() => {
                 const tick = () => {
                     const now = new Date();
@@ -243,15 +138,26 @@
                 if (SR) {
                     recognitionRef.current = new SR();
                     recognitionRef.current.lang = 'zh-TW';
-                    recognitionRef.current.onresult = (e) => setTranscript(e.results[0][0].transcript);
+                    // 關鍵修正：設為 true，需要手動停止
+                    recognitionRef.current.continuous = true; 
+                    recognitionRef.current.interimResults = true;
+
+                    recognitionRef.current.onresult = (e) => {
+                        let finalResult = '';
+                        for (let i = 0; i < e.results.length; ++i) {
+                            finalResult += e.results[i][0].transcript;
+                        }
+                        setTranscript(finalResult);
+                    };
                     recognitionRef.current.onerror = () => setIsListening(false);
                     recognitionRef.current.onend = () => setIsListening(false);
                 }
                 return () => clearInterval(timer);
             }, []);
 
+            // --- 核心功能 ---
             const saveToCloud = async (textToSave) => {
-                if (!selectedCharacter) return;
+                if (!user || !selectedCharacter) return;
                 
                 const charData = allProgress[selectedCharacter] || { completed: [], records: {} };
                 const newCompleted = [...new Set([...(charData.completed || []), currentLevelIdx])];
@@ -259,26 +165,61 @@
                 
                 const newData = {
                     ...allProgress,
-                    [selectedCharacter]: { completed: newCompleted, records: updatedRecords }
+                    [selectedCharacter]: {
+                        completed: newCompleted,
+                        records: updatedRecords
+                    }
+                };
+
+                try {
+                    const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary');
+                    await docRef.set({ students: newData }, { merge: true });
+                    setGameState('LEVEL_SELECT');
+                } catch (e) {
+                    console.error("Save error", e);
+                }
+            };
+
+            const handleDeleteRecord = async (charName, levelIdxToDelete) => {
+                if (!user) return;
+                const charData = allProgress[charName] || { completed: [], records: {} };
+                
+                const newCompleted = charData.completed.filter(idx => idx !== levelIdxToDelete);
+                const newRecords = { ...charData.records };
+                delete newRecords[levelIdxToDelete];
+
+                const newData = {
+                    ...allProgress,
+                    [charName]: {
+                        completed: newCompleted,
+                        records: newRecords
+                    }
                 };
 
                 setAllProgress(newData);
-                localStorage.setItem('emotion_adventure_data_v2', JSON.stringify(newData));
 
                 try {
-                    await db.collection('GameData').doc(DB_COLLECTION).set({ students: newData }, { merge: true });
+                    const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('progress').doc('summary');
+                    await docRef.set({ students: newData });
+                    
+                    if (gameState === 'PLAYING' && charName === selectedCharacter && levelIdxToDelete === currentLevelIdx) {
+                        setTranscript('');
+                    }
                 } catch (e) {
-                    console.warn("Firebase sync delayed, saved locally.");
+                    console.error("Delete error", e);
                 }
-
-                setGameState('LEVEL_SELECT');
             };
 
-            const startListening = () => {
-                if (!recognitionRef.current || isListening) return;
-                setTranscript('');
-                setIsListening(true);
-                try { recognitionRef.current.start(); } catch (e) { setIsListening(false); }
+            // 錄音切換 (手動開關)
+            const toggleListening = () => {
+                if (isListening) {
+                    recognitionRef.current.stop();
+                    setIsListening(false);
+                } else {
+                    setTranscript('');
+                    recognitionRef.current.start();
+                    setIsListening(true);
+                }
             };
 
             const CharacterAvatar = ({ name, className = "w-28 h-28" }) => {
@@ -299,52 +240,21 @@
                 </div>
             );
 
-            // 雙提示卡片元件
-            const HintCards = ({ hints, speak, speakingId, levelIdx }) => (
-                <div className="flex gap-4 w-full">
-                    {hints.map((h, i) => {
-                        const id = `hint-${levelIdx}-${i}`;
-                        const active = speakingId === id;
-                        return (
-                            <div key={i} className={`flex-1 rounded-[2.5rem] p-5 border-4 flex flex-col gap-2 shadow-sm ${i === 0 ? 'hint-a bg-orange-50 border-orange-200' : 'hint-b bg-teal-50 border-teal-200'}`}>
-                                <div className="flex items-center justify-between gap-2">
-                                    <div className={`flex items-center gap-2 font-black text-xl ${i === 0 ? 'text-orange-500' : 'text-teal-600'}`}>
-                                        <span className="text-2xl">{h.icon}</span>
-                                        <span>{h.label}</span>
-                                    </div>
-                                    <button onClick={() => speak(h.text, id)}
-                                        className={`flex items-center gap-1 px-3 py-1.5 rounded-xl font-black text-base border-2 transition-all active:scale-95 flex-shrink-0 ${active
-                                            ? 'speaking-btn bg-amber-400 border-amber-500 text-white'
-                                            : i === 0 ? 'bg-white border-orange-200 text-orange-400 hover:border-orange-400' : 'bg-white border-teal-200 text-teal-500 hover:border-teal-400'}`}>
-                                        {active
-                                            ? <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                                            : <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>}
-                                        {active ? '停止' : '朗讀'}
-                                    </button>
-                                </div>
-                                <p className={`font-bold text-2xl leading-snug ${i === 0 ? 'text-orange-800' : 'text-teal-800'}`}>{h.text}</p>
-                            </div>
-                        );
-                    })}
-                </div>
-            );
-
             return (
-                <div className="h-full w-full flex flex-col relative overflow-hidden bg-slate-50">
-                    {/* 頂部進度條 */}
+                <div className="h-full w-full flex flex-col relative overflow-hidden">
+                    {/* 進度條 */}
                     {(gameState === 'PLAYING' || gameState === 'LEVEL_SELECT') && (
-                        <div className="w-full h-4 bg-white shadow-sm overflow-hidden z-10">
+                        <div className="w-full h-8 bg-white shadow-sm overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-1000" style={{ width: `${((allProgress[selectedCharacter]?.completed?.length || 0) / 10) * 100}%` }} />
                         </div>
                     )}
 
                     <div className="flex-grow overflow-hidden relative">
-
-                        {/* 1. 大廳選人 */}
+                        {/* 1. 首頁 */}
                         {gameState === 'CHARACTER_SELECT' && (
                             <div className="h-full flex flex-col items-center justify-between py-10 px-12 bg-gradient-to-br from-indigo-50 to-white">
-                                <div className="text-center"><h2 className="text-5xl font-black text-slate-800 tracking-widest mt-4">誰要來接受挑戰？</h2><p className="text-slate-400 font-bold mt-2 text-xl">點擊同學照片即可進入「冒險地圖」</p></div>
-                                <div className="grid grid-cols-4 gap-8 w-full max-w-6xl">
+                                <div className="text-center"><h2 className="text-5xl font-black text-slate-800 tracking-widest mt-4">誰要來接受挑戰？</h2><p className="text-slate-400 font-bold mt-2 italic">點擊相片即可進入「冒險地圖」</p></div>
+                                <div className="grid grid-cols-4 gap-6 w-full max-w-6xl">
                                     {CHARACTER_DATA.map((char) => (
                                         <div key={char.name} className="bg-white p-6 rounded-[3.5rem] shadow-lg border-[8px] border-white hover:border-indigo-100 transition-all flex flex-col items-center justify-center min-h-[230px] cursor-pointer active:scale-95" 
                                              onClick={() => { setSelectedCharacter(char.name); setGameState('LEVEL_SELECT'); }}>
@@ -355,30 +265,37 @@
                                     ))}
                                 </div>
                                 <div className="w-full flex justify-center pb-6">
-                                    <button onClick={() => { setSelectedCharacter(null); setGameState('SUMMARY'); }} className="bg-indigo-600 text-white px-16 py-6 rounded-[3rem] font-black text-3xl active:scale-95 shadow-xl hover:bg-indigo-700 transition-colors">📊 檢視全班總結看板</button>
+                                    <button onClick={() => { setSelectedCharacter(null); setGameState('SUMMARY'); }} className="bg-white border-2 border-slate-200 text-slate-400 px-16 py-6 rounded-[3rem] font-black text-3xl active:scale-95 shadow-xl">📊 紀錄總覽回顧</button>
                                 </div>
                             </div>
                         )}
 
                         {/* 2. 紀錄看板 */}
                         {gameState === 'SUMMARY' && (
-                            <div className="h-full p-8 overflow-hidden flex flex-col">
-                                <div className="flex items-center justify-between mb-6 px-4"><button onClick={() => setGameState('CHARACTER_SELECT')} className="text-3xl font-black text-indigo-600 bg-white px-10 py-4 rounded-[2.5rem] shadow-md active:scale-95">← 返回首頁</button><h2 className="text-5xl font-black text-slate-800">全班發表紀錄回顧</h2><div className="w-40" /></div>
+                            <div className="h-full bg-slate-50 p-8 overflow-hidden flex flex-col">
+                                <div className="flex items-center justify-between mb-8 px-4"><button onClick={() => setGameState('CHARACTER_SELECT')} className="text-3xl font-black text-indigo-600 bg-white px-10 py-5 rounded-[2.5rem] shadow-md active:scale-95">← 返回首頁</button><h2 className="text-5xl font-black text-slate-800">全班冒險紀錄總表</h2><div className="w-40" /></div>
                                 <div className="flex-grow overflow-y-auto no-scrollbar pb-24 px-4"><div className="grid gap-8 max-w-5xl mx-auto">
                                     {(selectedCharacter ? [selectedCharacter] : CHARACTERS).map(name => (
                                         <div key={name} className="bg-white rounded-[4rem] p-10 shadow-xl border-2 border-indigo-50">
                                             <div className="flex items-center justify-between border-b-4 border-slate-50 pb-6 mb-6">
-                                                <div className="flex items-center gap-6"><CharacterAvatar name={name} className="w-20 h-20" /><span className="text-5xl font-black text-slate-800">{name}</span></div>
-                                                <span className="text-yellow-500 font-black text-4xl italic">★ {allProgress[name]?.completed?.length || 0} 關</span>
+                                                <div className="flex items-center gap-6"><CharacterAvatar name={name} className="w-24 h-24" /><span className="text-5xl font-black text-slate-800">{name}</span></div>
+                                                <span className="text-yellow-500 font-black text-4xl italic">★ {allProgress[name]?.completed?.length || 0}</span>
                                             </div>
                                             <div className="grid gap-6">
                                                 {allProgress[name]?.completed?.length > 0 ? allProgress[name].completed.sort((a,b)=>a-b).map(idx => (
                                                     <div key={idx} className="bg-indigo-50/50 p-8 rounded-[3rem] flex flex-col gap-4">
-                                                        <div className="flex items-center gap-4 text-3xl font-black text-indigo-600"><span>{SCENARIOS[idx].emoji}</span> 第 {idx + 1} 關</div>
-                                                        <p className="text-2xl text-slate-500 font-bold">{SCENARIOS[idx].text}</p>
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-4 text-3xl font-black text-indigo-600"><span>{SCENARIOS[idx].emoji}</span> 第 {idx + 1} 關</div>
+                                                            <button 
+                                                                onClick={() => handleDeleteRecord(name, idx)}
+                                                                className="bg-red-100 hover:bg-red-500 text-red-500 hover:text-white px-6 py-2 rounded-2xl font-bold text-xl transition-colors shadow-sm flex items-center gap-2"
+                                                            >
+                                                                🗑️ 刪除紀錄
+                                                            </button>
+                                                        </div>
                                                         <p className="text-4xl font-black text-slate-700 bg-white p-6 rounded-[2rem] shadow-sm leading-relaxed">「{allProgress[name].records[idx]}」</p>
                                                     </div>
-                                                )) : <p className="text-center text-slate-300 py-6 text-3xl font-bold italic">目前尚未有存檔紀錄</p>}
+                                                )) : <p className="text-center text-slate-300 py-10 text-3xl font-bold italic">目前尚未有存檔紀錄</p>}
                                             </div>
                                         </div>
                                     ))}
@@ -388,18 +305,18 @@
 
                         {/* 3. 選關地圖 */}
                         {gameState === 'LEVEL_SELECT' && (
-                            <div className="h-full flex flex-col items-center p-8 overflow-hidden">
+                            <div className="h-full flex flex-col items-center p-8 bg-slate-50 overflow-hidden">
                                 <div className="flex items-center justify-between w-full max-w-7xl mb-8 px-4">
-                                    <button onClick={() => setGameState('CHARACTER_SELECT')} className="text-3xl font-black text-slate-400 bg-white px-8 py-4 rounded-[2rem] shadow-sm active:scale-95">← 回選單</button>
+                                    <button onClick={() => setGameState('CHARACTER_SELECT')} className="text-3xl font-black text-slate-400 px-8 py-4 active:scale-95">← 重選挑戰者</button>
                                     <h2 className="text-5xl font-black text-slate-800 flex items-center gap-6"><CharacterAvatar name={selectedCharacter} className="w-24 h-24" /><span className="text-indigo-600 underline underline-offset-8 decoration-indigo-200">{selectedCharacter}</span> 的冒險地圖</h2>
-                                    <button onClick={() => setGameState('SUMMARY')} className="bg-indigo-100 text-indigo-600 px-10 py-4 rounded-[2rem] font-black text-2xl shadow-sm active:scale-95">📜 個人歷史</button>
+                                    <button onClick={() => setGameState('SUMMARY')} className="bg-indigo-50 text-indigo-600 px-10 py-5 rounded-[2rem] font-black text-2xl shadow-sm active:scale-95">📜 歷史回顧</button>
                                 </div>
-                                <div className="grid grid-cols-5 gap-6 w-full max-w-7xl flex-grow content-center">
+                                <div className="grid grid-cols-5 gap-8 w-full max-w-7xl flex-grow content-center">
                                     {SCENARIOS.map((s, idx) => (
                                         <button key={s.id} onClick={() => { setCurrentLevelIdx(idx); setGameState('PLAYING'); setTranscript(allProgress[selectedCharacter]?.records?.[idx] || ''); }} 
-                                            className={`relative h-[13rem] rounded-[4rem] flex flex-col items-center justify-center gap-3 transition-all shadow-xl border-[10px] active:scale-95 ${allProgress[selectedCharacter]?.completed?.includes(idx) ? 'bg-green-50 border-green-400 text-green-700' : 'bg-white border-white hover:border-indigo-200'}`}>
-                                            <span className="text-[5.5rem] leading-none">{s.emoji}</span><span className="font-black text-2xl">第 {idx+1} 關</span>
-                                            {allProgress[selectedCharacter]?.completed?.includes(idx) && <div className="absolute top-4 right-4 text-green-500"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>}
+                                            className={`relative h-60 rounded-[4.5rem] flex flex-col items-center justify-center gap-3 transition-all shadow-xl border-[10px] active:scale-90 ${allProgress[selectedCharacter]?.completed?.includes(idx) ? 'bg-green-50 border-green-400 text-green-700' : 'bg-white border-white hover:border-indigo-200'}`}>
+                                            <span className="text-8xl">{s.emoji}</span><span className="font-black text-3xl">第 {idx+1} 關</span>
+                                            {allProgress[selectedCharacter]?.completed?.includes(idx) && <div className="absolute top-4 right-4 text-green-500"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>}
                                         </button>
                                     ))}
                                 </div>
@@ -408,67 +325,67 @@
 
                         {/* 4. 遊玩面 */}
                         {gameState === 'PLAYING' && (
-                            <div className="h-full flex flex-col items-center justify-center p-6 overflow-hidden">
-                                <div className="w-full max-w-[95vw] flex justify-between items-center mb-2 px-4">
-                                    <button onClick={() => { window.speechSynthesis && window.speechSynthesis.cancel(); setSpeakingId(null); setGameState('LEVEL_SELECT'); }} className="text-2xl font-bold text-indigo-600 bg-white px-8 py-3 rounded-2xl shadow-md active:scale-95">← 返回地圖</button>
-                                    <div className="flex items-center gap-4 bg-white px-6 py-2 rounded-full border-2 border-indigo-50 shadow-sm"><CharacterAvatar name={selectedCharacter} className="w-12 h-12" /><span className="font-black text-2xl text-slate-700">{selectedCharacter} 的挑戰</span></div>
+                            <div className="h-full flex flex-col items-center justify-center p-6 bg-indigo-50 overflow-hidden">
+                                <div className="w-full max-w-[95vw] flex justify-between items-center mb-2 px-6">
+                                    <button onClick={() => setGameState('LEVEL_SELECT')} className="text-2xl font-bold text-indigo-600 bg-white px-10 py-4 rounded-3xl shadow-md active:bg-slate-50">← 返回地圖</button>
+                                    <div className="flex items-center gap-4 bg-white/80 px-8 py-3 rounded-full border border-white shadow-sm"><CharacterAvatar name={selectedCharacter} className="w-14 h-14" /><span className="font-black text-3xl text-slate-700">{selectedCharacter}</span></div>
                                 </div>
 
-                                <div className="bg-white rounded-[4rem] shadow-2xl overflow-hidden w-full max-w-[95vw] flex flex-1 max-h-[80vh] border-b-[20px] border-indigo-200">
-                                    {/* 左側色塊 */}
-                                    <div className="w-[28%] bg-indigo-600 flex flex-col items-center justify-center p-6 text-center text-white relative">
-                                        <div className="text-[12rem] mb-6 drop-shadow-2xl">{SCENARIOS[currentLevelIdx].emoji}</div>
-                                        <div className="bg-white/20 px-8 py-3 rounded-full text-3xl font-black uppercase">LEVEL {currentLevelIdx + 1}</div>
+                                <div className="bg-white rounded-[5rem] shadow-2xl overflow-hidden w-full max-w-[95vw] flex flex-1 max-h-[75vh] border-b-[24px] border-indigo-200">
+                                    <div className="w-[35%] bg-indigo-600 flex flex-col items-center justify-center p-8 text-center text-white relative">
+                                        <div className="text-[18rem] mb-8 drop-shadow-2xl">{SCENARIOS[currentLevelIdx].emoji}</div>
+                                        <div className="bg-white/20 px-10 py-4 rounded-full text-4xl font-black uppercase tracking-widest">LEVEL {currentLevelIdx + 1}</div>
                                     </div>
-
-                                    {/* 右側主區域 */}
-                                    <div className="w-[72%] p-8 flex flex-col gap-4 overflow-hidden">
-                                        {/* 情境文字 + 朗讀鈕 */}
-                                        <div className="bg-slate-50 rounded-[3rem] p-6 border-4 border-slate-100 w-full shadow-inner flex-shrink-0 flex items-center gap-4">
-                                            <h3 className="flex-1 text-3xl font-black text-gray-700 leading-snug text-center">「{SCENARIOS[currentLevelIdx].text}」</h3>
-                                            <SpeakBtn text={SCENARIOS[currentLevelIdx].text} id={`scene-${currentLevelIdx}`} size="lg" />
+                                    <div className="w-[65%] p-10 flex flex-col justify-between items-center overflow-hidden">
+                                        
+                                        <div className="bg-slate-50 rounded-[4rem] p-8 border-4 border-slate-100 w-full text-center shadow-inner mb-4">
+                                            <h3 className="text-4xl font-black text-gray-700 leading-snug">「{SCENARIOS[currentLevelIdx].text}」</h3>
                                         </div>
+                                        
+                                        <div className="flex flex-col items-center gap-4 w-full">
+                                            <div className="bg-yellow-50 px-8 py-3 rounded-[2rem] w-full border-2 border-yellow-200 text-center shadow-sm">
+                                                <p className="text-indigo-800 font-bold text-2xl mb-1">{SCENARIOS[currentLevelIdx].hint}</p>
+                                                <p className="text-yellow-700 font-black text-3xl">可以這樣說：{SCENARIOS[currentLevelIdx].scaffold}</p>
+                                            </div>
 
-                                        {/* ★ 雙方向提示卡 ★ */}
-                                        <div className="flex-shrink-0">
-                                            <p className="text-slate-400 font-black text-xl text-center mb-3">💡 參考方向（用你自己的話說說看）</p>
-                                            <HintCards hints={SCENARIOS[currentLevelIdx].hints} speak={speak} speakingId={speakingId} levelIdx={currentLevelIdx} />
-                                        </div>
-
-                                        {/* 問題 + 朗讀鈕 */}
-                                        <div className="flex items-center justify-center gap-4 flex-shrink-0">
-                                            <p className="text-indigo-600 font-black text-2xl text-center">{SCENARIOS[currentLevelIdx].question}</p>
-                                            <SpeakBtn text={SCENARIOS[currentLevelIdx].question} id={`q-${currentLevelIdx}`} />
-                                        </div>
-
-                                        {/* 錄音 / 編輯區 */}
-                                        <div className="flex flex-col flex-1 gap-3 justify-end pb-2">
-                                            {transcript || allProgress[selectedCharacter]?.records?.[currentLevelIdx] ? (
-                                                <div className="flex flex-col gap-3 flex-1">
-                                                    <div className="bg-indigo-50/50 w-full p-5 rounded-[2.5rem] border-[6px] border-indigo-200 shadow-inner flex flex-col flex-1">
-                                                        <div className="flex justify-between items-center border-b-4 border-white pb-3 mb-3">
-                                                            <p className="text-indigo-500 text-xl font-black flex items-center gap-2"><span>💬</span> 我的回答（可直接修改）：</p>
-                                                            <button onClick={startListening} className={`px-5 py-2 rounded-xl font-bold text-lg transition-colors ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-indigo-600 shadow-sm border-2 border-indigo-100 hover:bg-indigo-100'}`}>
-                                                                {isListening ? "聽寫中..." : "重新語音輸入"}
-                                                            </button>
-                                                        </div>
-                                                        <textarea className="w-full flex-1 text-4xl font-black text-indigo-900 text-center bg-transparent border-none focus:ring-0 resize-none no-scrollbar leading-normal min-h-[80px]" 
-                                                                  value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="等待輸入中..." />
+                                            <div className="flex items-center gap-10 bg-indigo-50/50 p-6 rounded-[4rem] border-2 border-indigo-100 w-full justify-center shadow-sm">
+                                                <button onClick={toggleListening} className={`relative w-36 h-36 rounded-full flex items-center justify-center transition-all duration-300 ${isListening ? 'bg-red-500 scale-110 shadow-[0_0_60px_rgba(239,68,68,0.7)] animate-pulse' : 'bg-indigo-600 hover:bg-indigo-700 shadow-xl active:scale-90'}`}>
+                                                    <div className="text-white relative z-10 scale-[2]">
+                                                        {isListening ? (
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="6" y="6" width="12" height="12"></rect></svg>
+                                                        ) : (
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                                                        )}
                                                     </div>
-                                                    {!isListening && (
-                                                        <button onClick={() => saveToCloud(transcript)} className="w-full bg-green-500 hover:bg-green-600 text-white font-black py-6 rounded-[3rem] text-4xl shadow-[0_10px_30px_rgba(34,197,94,0.4)] active:scale-95 transition-all">
-                                                            ✔ 確認發表並儲存紀錄
+                                                </button>
+                                                <div className="text-left">
+                                                    <p className={`text-5xl font-black ${isListening ? 'text-red-500' : 'text-slate-500'}`}>
+                                                        {isListening ? "錄音中... 點擊停止" : "點擊開始錄音"}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="h-[220px] w-full flex flex-col items-center justify-center text-center gap-4 mt-2">
+                                            <div className="bg-white w-full px-10 py-6 rounded-[3.5rem] border-[10px] border-indigo-200 shadow-2xl flex flex-col gap-2 relative">
+                                                <div className="flex items-center justify-between border-b-2 border-slate-50 pb-2 mb-2">
+                                                    <p className="text-indigo-400 text-2xl font-black flex items-center gap-2">💬 學生的敘述：</p>
+                                                    {allProgress[selectedCharacter]?.completed?.includes(currentLevelIdx) && (
+                                                        <button 
+                                                            onClick={() => handleDeleteRecord(selectedCharacter, currentLevelIdx)}
+                                                            className="bg-red-100 hover:bg-red-500 text-red-500 hover:text-white px-5 py-2 rounded-xl font-bold text-lg transition-colors shadow-sm flex items-center gap-2"
+                                                        >
+                                                            🗑️ 刪除重答
                                                         </button>
                                                     )}
                                                 </div>
-                                            ) : (
-                                                <div className="flex items-center gap-8 bg-indigo-50 p-8 rounded-[4rem] border-4 border-indigo-100 w-full justify-center shadow-sm">
-                                                    <button onClick={startListening} disabled={isListening} className={`relative w-32 h-32 rounded-full flex items-center justify-center transition-all duration-300 ${isListening ? 'bg-red-500 scale-110 shadow-[0_0_50px_rgba(239,68,68,0.7)]' : 'bg-indigo-600 hover:bg-indigo-700 shadow-xl active:scale-90'}`}>
-                                                        {isListening && <div className="absolute inset-0 rounded-full animate-ping bg-red-400 opacity-75 scale-125"></div>}
-                                                        <div className="text-white relative z-10"><svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></div>
-                                                    </button>
-                                                    <div className="text-left"><p className={`text-5xl font-black ${isListening ? 'text-red-500 animate-pulse' : 'text-slate-400'}`}>{isListening ? "正在傾聽..." : "點擊麥克風說話"}</p></div>
-                                                </div>
+                                                <textarea className="w-full text-5xl font-black text-indigo-900 text-center bg-transparent border-none focus:ring-0 resize-none h-24 no-scrollbar leading-relaxed" 
+                                                          value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="等待輸入中..." />
+                                            </div>
+                                            {transcript.length > 0 && !isListening && (
+                                                <button onClick={() => saveToCloud(transcript)} className="bg-green-500 hover:bg-green-600 text-white font-black py-6 px-20 rounded-[3rem] text-4xl shadow-xl active:scale-95 transition-all flex items-center gap-6 shadow-[0_10px_40px_rgba(34,197,94,0.4)]">
+                                                    確認發表並存入雲端
+                                                </button>
                                             )}
                                         </div>
                                     </div>
@@ -477,12 +394,11 @@
                         )}
                     </div>
 
-                    {/* 底部狀態列 */}
-                    <div className="h-16 bg-white flex items-center justify-between px-16 border-t-4 border-slate-100 z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.02)]">
-                         <div className="bg-indigo-600 text-white px-8 py-1.5 rounded-2xl font-black text-2xl tabular-nums shadow-sm">{currentTime}</div>
-                         <span className="text-slate-300 font-black tracking-[1.5em] text-lg uppercase hidden lg:inline tracking-tighter">Emotion Adventure • Dual Engine</span>
-                         <div className="bg-indigo-50 px-8 py-1.5 rounded-2xl font-black text-indigo-400 text-xl shadow-inner">
-                             {selectedCharacter ? `${selectedCharacter} 已完成：${allProgress[selectedCharacter]?.completed?.length || 0}/10` : "等待同學挑戰"}
+                    <div className="h-20 bg-white flex items-center justify-between px-20 border-t-2 border-slate-100 z-50 shadow-inner">
+                         <div className="bg-indigo-600 text-white px-10 py-3 rounded-2xl font-black text-4xl tabular-nums shadow-lg">{currentTime}</div>
+                         <span className="text-slate-200 font-black tracking-[1.2em] text-xl uppercase hidden lg:inline tracking-tighter">Emotion Adventure • Cloud Data Persistence</span>
+                         <div className="bg-indigo-50 px-10 py-3 rounded-2xl font-black text-indigo-400 text-3xl shadow-inner">
+                             {selectedCharacter ? `${selectedCharacter} 過關：${allProgress[selectedCharacter]?.completed?.length || 0}/10` : "準備開始挑戰"}
                          </div>
                     </div>
                 </div>
