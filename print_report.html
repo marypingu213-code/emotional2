@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>情緒大冒險 — 學生回答列印報告</title>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans TC', 'Arial', sans-serif; background: #f1f5f9; color: #1e293b; min-height: 100vh; }
+
+        #toolbar {
+            position: sticky; top: 0; z-index: 100;
+            background: #4338ca; color: white;
+            padding: 16px 32px; display: flex; align-items: center; justify-content: space-between;
+            box-shadow: 0 4px 16px rgba(67,56,202,0.3);
+        }
+        #toolbar h1 { font-size: 1.35rem; font-weight: 900; }
+        #toolbar .meta { font-size: 0.85rem; opacity: 0.75; margin-top: 3px; }
+        .btn-print {
+            background: white; color: #4338ca; border: none;
+            padding: 10px 28px; border-radius: 999px;
+            font-size: 1.05rem; font-weight: 900; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform 0.1s;
+        }
+        .btn-print:active { transform: scale(0.96); }
+
+        #loading {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; min-height: 60vh; gap: 16px;
+            color: #64748b; font-size: 1.2rem; font-weight: 700;
+        }
+        .spinner {
+            width: 48px; height: 48px;
+            border: 5px solid #e2e8f0; border-top-color: #4338ca;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #report { max-width: 900px; margin: 32px auto; padding: 0 24px 80px; }
+
+        .cover {
+            background: white; border-radius: 24px; padding: 36px 40px;
+            margin-bottom: 36px; box-shadow: 0 4px 20px rgba(0,0,0,0.07);
+            border-left: 8px solid #4338ca;
+        }
+        .cover-title { font-size: 1.9rem; font-weight: 900; color: #1e293b; }
+        .cover-sub { font-size: 0.95rem; color: #64748b; margin-top: 6px; font-weight: 500; }
+        .cover-stats { display: flex; gap: 16px; margin-top: 20px; flex-wrap: wrap; }
+        .stat-badge {
+            background: #eef2ff; color: #4338ca;
+            padding: 7px 16px; border-radius: 999px; font-weight: 900; font-size: 0.9rem;
+        }
+
+        .student-block {
+            background: white; border-radius: 20px; margin-bottom: 28px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06); overflow: hidden;
+            page-break-inside: avoid;
+        }
+        .student-header {
+            background: linear-gradient(135deg,#4338ca 0%,#6366f1 100%);
+            color: white; padding: 18px 28px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .student-name { font-size: 1.45rem; font-weight: 900; }
+        .student-score {
+            background: rgba(255,255,255,0.22); padding: 5px 16px;
+            border-radius: 999px; font-weight: 900; font-size: 0.95rem;
+        }
+
+        .answers { padding: 20px 28px 24px; display: flex; flex-direction: column; gap: 14px; }
+
+        .answer-row {
+            display: grid; grid-template-columns: 44px 1fr;
+            gap: 12px; align-items: start;
+            padding: 14px 16px; background: #f8fafc;
+            border-radius: 14px; border-left: 4px solid #6366f1;
+        }
+        .answer-emoji { font-size: 1.9rem; text-align: center; padding-top: 2px; }
+        .answer-scenario { font-size: 0.8rem; color: #94a3b8; font-weight: 700; margin-bottom: 5px; line-height: 1.4; }
+        .answer-level {
+            display: inline-block; background: #eef2ff; color: #4338ca;
+            font-size: 0.72rem; font-weight: 900; padding: 2px 8px;
+            border-radius: 6px; margin-right: 5px;
+        }
+        .answer-text {
+            font-size: 1.08rem; font-weight: 700; color: #1e293b; line-height: 1.6;
+            background: white; padding: 10px 14px; border-radius: 10px;
+            border: 1.5px solid #e2e8f0; margin-top: 6px;
+        }
+        .answer-text::before { content: '\300C'; color: #6366f1; }
+        .answer-text::after  { content: '\300D'; color: #6366f1; }
+        .no-answer { color: #cbd5e1; font-style: italic; font-size: 0.95rem; text-align: center; padding: 24px; }
+
+        @media print {
+            @page { size: A4; margin: 16mm 14mm; }
+            body { background: white; }
+            #toolbar { display: none !important; }
+            #report { max-width: 100%; margin: 0; padding: 0; }
+            .cover { box-shadow: none; border-radius: 12px; margin-bottom: 18px; }
+            .student-block { box-shadow: none; border: 1.5px solid #e2e8f0; margin-bottom: 18px; border-radius: 12px; }
+            .student-header, .stat-badge, .answer-row, .student-score {
+                -webkit-print-color-adjust: exact; print-color-adjust: exact;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div id="toolbar">
+    <div>
+        <h1>📋 情緒大冒險 — 學生回答報告</h1>
+        <div class="meta" id="toolbar-meta">資料載入中⋯⋯</div>
+    </div>
+    <button class="btn-print" onclick="window.print()">🖨️ 列印 / 存成 PDF</button>
+</div>
+
+<div id="loading">
+    <div class="spinner"></div>
+    <p>正在從雲端讀取學生資料⋯⋯</p>
+</div>
+
+<div id="report" style="display:none;"></div>
+
+<script>
+const firebaseConfig = {
+    apiKey: "AIzaSyBdioCJeP0FbZvX_opzhrgsgQ5OtQR5J_Y",
+    authDomain: "emotionadventure-bca46.firebaseapp.com",
+    projectId: "emotionadventure-bca46",
+    storageBucket: "emotionadventure-bca46.firebasestorage.app",
+    messagingSenderId: "255312343191",
+    appId: "1:255312343191:web:ac90f2cbb36296edbdf9d2"
+};
+
+const CHARACTERS = ["沄恩","澄洋","意欣","宇晴","齊安","欽銓","盧楷"];
+const DB_COLLECTION = "ClassRecords_V12";
+const SCENARIOS = [
+    { emoji:"🚫", text:"下課時我想加入同學的遊戲，但他們說「我們不要你」，我好難過。" },
+    { emoji:"😤", text:"我和好朋友因為一點小事吵架了，我們現在都不說話。" },
+    { emoji:"😢", text:"考試卷發下來，我的成績很差，我覺得很沮喪想哭。" },
+    { emoji:"😡", text:"有同學一直嘲笑我的名字或外表，我覺得很生氣又很受傷。" },
+    { emoji:"😰", text:"我不小心打破了教室裡的東西，很害怕被老師責罵。" },
+    { emoji:"🤔", text:"我看到一個同學在走廊被另一個同學推來推去，但我不知道該怎麼辦。" },
+    { emoji:"😖", text:"老師誤會是我做的，但其實不是我，我覺得好委屈。" },
+    { emoji:"🤕", text:"體育課跑步時我跌倒了，膝蓋破皮很痛，眼眶紅紅的。" },
+    { emoji:"😣", text:"分組活動時，我沒有被任何一組選到，一個人站在那裡很尷尬。" },
+    { emoji:"🎁", text:"同學帶了一個很酷的新玩具來學校，我非常想要玩，但那是他的。" }
+];
+
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+firebase.auth().signInAnonymously().catch(()=>{});
+
+function escapeHTML(str) {
+    return String(str)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+}
+
+function renderReport(allProgress) {
+    const now = new Date();
+    const dateStr = now.getFullYear()+'/'+(now.getMonth()+1)+'/'+now.getDate();
+    const timeStr = now.getHours()+':'+now.getMinutes().toString().padStart(2,'0');
+
+    let totalAnswers = 0, studentsAnswered = 0;
+    CHARACTERS.forEach(name => {
+        const c = allProgress[name]?.completed?.length || 0;
+        totalAnswers += c;
+        if (c > 0) studentsAnswered++;
+    });
+
+    const coverHTML = `
+        <div class="cover">
+            <div class="cover-title">情緒大冒險 — 班級回答總覽</div>
+            <div class="cover-sub">列印時間：${dateStr} ${timeStr}</div>
+            <div class="cover-stats">
+                <span class="stat-badge">👥 共 ${CHARACTERS.length} 位同學</span>
+                <span class="stat-badge">✍️ 已作答 ${studentsAnswered} 人</span>
+                <span class="stat-badge">💬 總計回答 ${totalAnswers} 題</span>
+                <span class="stat-badge">📋 共 ${SCENARIOS.length} 關情境</span>
+            </div>
+        </div>`;
+
+    let studentsHTML = '';
+    CHARACTERS.forEach(name => {
+        const prog = allProgress[name] || { completed:[], records:{} };
+        const count = prog.completed?.length || 0;
+        let answersHTML = '';
+
+        if (count === 0) {
+            answersHTML = '<div class="no-answer">此同學目前尚無作答紀錄</div>';
+        } else {
+            [...(prog.completed||[])].sort((a,b)=>a-b).forEach(idx => {
+                const s = SCENARIOS[idx];
+                const ans = prog.records?.[idx] || '（無文字紀錄）';
+                answersHTML += `
+                    <div class="answer-row">
+                        <div class="answer-emoji">${s.emoji}</div>
+                        <div>
+                            <div class="answer-scenario">
+                                <span class="answer-level">第 ${idx+1} 關</span>${s.text}
+                            </div>
+                            <div class="answer-text">${escapeHTML(ans)}</div>
+                        </div>
+                    </div>`;
+            });
+        }
+
+        studentsHTML += `
+            <div class="student-block">
+                <div class="student-header">
+                    <div class="student-name">✦ ${name}</div>
+                    <div class="student-score">完成 ${count} / ${SCENARIOS.length} 關</div>
+                </div>
+                <div class="answers">${answersHTML}</div>
+            </div>`;
+    });
+
+    document.getElementById('report').innerHTML = coverHTML + studentsHTML;
+    document.getElementById('report').style.display = 'block';
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('toolbar-meta').textContent =
+        `共 ${studentsAnswered} 位同學已作答 × 總計 ${totalAnswers} 則回應 × ${dateStr} ${timeStr} 更新`;
+}
+
+function loadData() {
+    db.collection('GameData').doc(DB_COLLECTION).get()
+        .then(snap => {
+            let data = {};
+            if (snap.exists && snap.data().students) {
+                data = snap.data().students;
+            } else {
+                try { data = JSON.parse(localStorage.getItem('emotion_adventure_data_v2')||'{}'); } catch(e){}
+            }
+            renderReport(data);
+        })
+        .catch(() => {
+            let data = {};
+            try { data = JSON.parse(localStorage.getItem('emotion_adventure_data_v2')||'{}'); } catch(e){}
+            renderReport(data);
+        });
+}
+
+window.addEventListener('DOMContentLoaded', loadData);
+</script>
+</body>
+</html>
