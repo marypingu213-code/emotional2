@@ -10,24 +10,26 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Noto Sans TC', 'Arial', sans-serif; background: #f1f5f9; color: #1e293b; min-height: 100vh; }
+        body { font-family: 'Noto Sans TC', 'Arial', sans-serif; background: #f1f5f9; color: #1e293b; }
 
+        /* ── 工具列（列印時隱藏） ── */
         #toolbar {
             position: sticky; top: 0; z-index: 100;
             background: #4338ca; color: white;
-            padding: 16px 32px; display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 32px; display: flex; align-items: center; justify-content: space-between;
             box-shadow: 0 4px 16px rgba(67,56,202,0.3);
         }
-        #toolbar h1 { font-size: 1.35rem; font-weight: 900; }
-        #toolbar .meta { font-size: 0.85rem; opacity: 0.75; margin-top: 3px; }
+        #toolbar h1 { font-size: 1.2rem; font-weight: 900; }
+        #toolbar .meta { font-size: 0.82rem; opacity: 0.75; margin-top: 3px; }
         .btn-print {
             background: white; color: #4338ca; border: none;
-            padding: 10px 28px; border-radius: 999px;
-            font-size: 1.05rem; font-weight: 900; cursor: pointer;
+            padding: 9px 26px; border-radius: 999px;
+            font-size: 1rem; font-weight: 900; cursor: pointer;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform 0.1s;
         }
         .btn-print:active { transform: scale(0.96); }
 
+        /* ── 載入中 ── */
         #loading {
             display: flex; flex-direction: column; align-items: center;
             justify-content: center; min-height: 60vh; gap: 16px;
@@ -40,70 +42,123 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        #report { max-width: 900px; margin: 32px auto; padding: 0 24px 80px; }
+        /* ── 報告外框（螢幕預覽用） ── */
+        #report { padding: 24px 0 60px; }
 
-        .cover {
-            background: white; border-radius: 24px; padding: 36px 40px;
-            margin-bottom: 36px; box-shadow: 0 4px 20px rgba(0,0,0,0.07);
-            border-left: 8px solid #4338ca;
-        }
-        .cover-title { font-size: 1.9rem; font-weight: 900; color: #1e293b; }
-        .cover-sub { font-size: 0.95rem; color: #64748b; margin-top: 6px; font-weight: 500; }
-        .cover-stats { display: flex; gap: 16px; margin-top: 20px; flex-wrap: wrap; }
-        .stat-badge {
-            background: #eef2ff; color: #4338ca;
-            padding: 7px 16px; border-radius: 999px; font-weight: 900; font-size: 0.9rem;
-        }
-
-        .student-block {
-            background: white; border-radius: 20px; margin-bottom: 28px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06); overflow: hidden;
-            page-break-inside: avoid;
-        }
-        .student-header {
-            background: linear-gradient(135deg,#4338ca 0%,#6366f1 100%);
-            color: white; padding: 18px 28px;
-            display: flex; align-items: center; justify-content: space-between;
-        }
-        .student-name { font-size: 1.45rem; font-weight: 900; }
-        .student-score {
-            background: rgba(255,255,255,0.22); padding: 5px 16px;
-            border-radius: 999px; font-weight: 900; font-size: 0.95rem;
+        /* ── 每位學生 = 一張 A4 ── */
+        .student-page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto 32px;
+            background: white;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
         }
 
-        .answers { padding: 20px 28px 24px; display: flex; flex-direction: column; gap: 14px; }
+        /* 頁首 */
+        .page-header {
+            background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+            color: white;
+            padding: 22px 32px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .header-left { display: flex; flex-direction: column; gap: 4px; }
+        .class-label { font-size: 0.78rem; font-weight: 700; opacity: 0.75; letter-spacing: 0.08em; }
+        .student-name { font-size: 2rem; font-weight: 900; letter-spacing: 0.05em; }
+        .header-right { text-align: right; }
+        .score-badge {
+            background: rgba(255,255,255,0.22);
+            padding: 8px 20px; border-radius: 999px;
+            font-weight: 900; font-size: 1rem;
+            display: inline-block; margin-bottom: 6px;
+        }
+        .date-label { font-size: 0.75rem; opacity: 0.7; }
+
+        /* 裝飾線 */
+        .header-stripe {
+            height: 5px;
+            background: repeating-linear-gradient(90deg, #fbbf24 0px, #fbbf24 20px, #f59e0b 20px, #f59e0b 40px);
+            flex-shrink: 0;
+        }
+
+        /* 回答內容區 */
+        .page-body { padding: 20px 28px 20px; flex: 1; display: flex; flex-direction: column; gap: 10px; }
 
         .answer-row {
-            display: grid; grid-template-columns: 44px 1fr;
-            gap: 12px; align-items: start;
-            padding: 14px 16px; background: #f8fafc;
-            border-radius: 14px; border-left: 4px solid #6366f1;
+            display: grid;
+            grid-template-columns: 40px 1fr;
+            gap: 10px;
+            align-items: start;
+            padding: 10px 14px;
+            background: #f8fafc;
+            border-radius: 12px;
+            border-left: 4px solid #6366f1;
         }
-        .answer-emoji { font-size: 1.9rem; text-align: center; padding-top: 2px; }
-        .answer-scenario { font-size: 0.8rem; color: #94a3b8; font-weight: 700; margin-bottom: 5px; line-height: 1.4; }
+        .answer-emoji { font-size: 1.6rem; text-align: center; padding-top: 2px; line-height: 1; }
         .answer-level {
             display: inline-block; background: #eef2ff; color: #4338ca;
-            font-size: 0.72rem; font-weight: 900; padding: 2px 8px;
-            border-radius: 6px; margin-right: 5px;
+            font-size: 0.68rem; font-weight: 900; padding: 2px 7px;
+            border-radius: 5px; margin-right: 5px; vertical-align: middle;
+        }
+        .answer-scenario {
+            font-size: 0.75rem; color: #94a3b8; font-weight: 700;
+            margin-bottom: 5px; line-height: 1.4;
         }
         .answer-text {
-            font-size: 1.08rem; font-weight: 700; color: #1e293b; line-height: 1.6;
-            background: white; padding: 10px 14px; border-radius: 10px;
-            border: 1.5px solid #e2e8f0; margin-top: 6px;
+            font-size: 0.95rem; font-weight: 700; color: #1e293b; line-height: 1.65;
+            background: white; padding: 8px 12px; border-radius: 9px;
+            border: 1.5px solid #e2e8f0;
         }
         .answer-text::before { content: '\300C'; color: #6366f1; }
         .answer-text::after  { content: '\300D'; color: #6366f1; }
-        .no-answer { color: #cbd5e1; font-style: italic; font-size: 0.95rem; text-align: center; padding: 24px; }
 
+        .no-answer {
+            flex: 1; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 12px;
+            color: #cbd5e1; font-size: 1.1rem; font-style: italic;
+            padding: 40px 0;
+        }
+        .no-answer-icon { font-size: 3rem; }
+
+        /* 頁尾 */
+        .page-footer {
+            border-top: 2px dashed #e2e8f0;
+            padding: 10px 28px;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .footer-brand { font-size: 0.72rem; color: #cbd5e1; font-weight: 700; letter-spacing: 0.1em; }
+        .footer-stars { display: flex; gap: 3px; }
+        .footer-stars span { font-size: 0.9rem; }
+
+        /* ── 列印樣式 ── */
         @media print {
-            @page { size: A4; margin: 16mm 14mm; }
+            @page { size: A4; margin: 0; }
             body { background: white; }
             #toolbar { display: none !important; }
-            #report { max-width: 100%; margin: 0; padding: 0; }
-            .cover { box-shadow: none; border-radius: 12px; margin-bottom: 18px; }
-            .student-block { box-shadow: none; border: 1.5px solid #e2e8f0; margin-bottom: 18px; border-radius: 12px; }
-            .student-header, .stat-badge, .answer-row, .student-score {
-                -webkit-print-color-adjust: exact; print-color-adjust: exact;
+            #report { padding: 0; }
+            .student-page {
+                width: 210mm;
+                min-height: 297mm;
+                height: 297mm;
+                margin: 0;
+                box-shadow: none;
+                page-break-after: always;
+                break-after: page;
+            }
+            .student-page:last-child {
+                page-break-after: avoid;
+                break-after: avoid;
+            }
+            .page-header, .header-stripe, .answer-row, .score-badge, .answer-level {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
         }
     </style>
@@ -112,7 +167,7 @@
 
 <div id="toolbar">
     <div>
-        <h1>📋 情緒大冒險 — 學生回答報告</h1>
+        <h1>📋 情緒大冒險 — 學生回答報告（一人一頁）</h1>
         <div class="meta" id="toolbar-meta">資料載入中⋯⋯</div>
     </div>
     <button class="btn-print" onclick="window.print()">🖨️ 列印 / 存成 PDF</button>
@@ -160,10 +215,18 @@ function escapeHTML(str) {
         .replace(/"/g,'&quot;').replace(/\n/g,'<br>');
 }
 
+function starsHTML(count, total) {
+    let s = '';
+    for (let i = 0; i < total; i++) {
+        s += `<span style="color:${i < count ? '#fbbf24' : '#e2e8f0'}">★</span>`;
+    }
+    return s;
+}
+
 function renderReport(allProgress) {
     const now = new Date();
-    const dateStr = now.getFullYear()+'/'+(now.getMonth()+1)+'/'+now.getDate();
-    const timeStr = now.getHours()+':'+now.getMinutes().toString().padStart(2,'0');
+    const dateStr = now.getFullYear() + '/' + (now.getMonth()+1) + '/' + now.getDate();
+    const timeStr = now.getHours() + ':' + now.getMinutes().toString().padStart(2,'0');
 
     let totalAnswers = 0, studentsAnswered = 0;
     CHARACTERS.forEach(name => {
@@ -172,31 +235,26 @@ function renderReport(allProgress) {
         if (c > 0) studentsAnswered++;
     });
 
-    const coverHTML = `
-        <div class="cover">
-            <div class="cover-title">情緒大冒險 — 班級回答總覽</div>
-            <div class="cover-sub">列印時間：${dateStr} ${timeStr}</div>
-            <div class="cover-stats">
-                <span class="stat-badge">👥 共 ${CHARACTERS.length} 位同學</span>
-                <span class="stat-badge">✍️ 已作答 ${studentsAnswered} 人</span>
-                <span class="stat-badge">💬 總計回答 ${totalAnswers} 題</span>
-                <span class="stat-badge">📋 共 ${SCENARIOS.length} 關情境</span>
-            </div>
-        </div>`;
+    let pagesHTML = '';
 
-    let studentsHTML = '';
     CHARACTERS.forEach(name => {
         const prog = allProgress[name] || { completed:[], records:{} };
         const count = prog.completed?.length || 0;
-        let answersHTML = '';
+        const sorted = [...(prog.completed||[])].sort((a,b)=>a-b);
 
+        // 回答內容
+        let bodyHTML = '';
         if (count === 0) {
-            answersHTML = '<div class="no-answer">此同學目前尚無作答紀錄</div>';
+            bodyHTML = `
+                <div class="no-answer">
+                    <div class="no-answer-icon">📝</div>
+                    <div>此同學目前尚無作答紀錄</div>
+                </div>`;
         } else {
-            [...(prog.completed||[])].sort((a,b)=>a-b).forEach(idx => {
+            sorted.forEach(idx => {
                 const s = SCENARIOS[idx];
                 const ans = prog.records?.[idx] || '（無文字紀錄）';
-                answersHTML += `
+                bodyHTML += `
                     <div class="answer-row">
                         <div class="answer-emoji">${s.emoji}</div>
                         <div>
@@ -209,21 +267,32 @@ function renderReport(allProgress) {
             });
         }
 
-        studentsHTML += `
-            <div class="student-block">
-                <div class="student-header">
-                    <div class="student-name">✦ ${name}</div>
-                    <div class="student-score">完成 ${count} / ${SCENARIOS.length} 關</div>
+        pagesHTML += `
+            <div class="student-page">
+                <div class="page-header">
+                    <div class="header-left">
+                        <div class="class-label">情緒大冒險 · 學生作答紀錄</div>
+                        <div class="student-name">✦ ${name}</div>
+                    </div>
+                    <div class="header-right">
+                        <div class="score-badge">完成 ${count} / ${SCENARIOS.length} 關</div>
+                        <div class="date-label">列印時間：${dateStr} ${timeStr}</div>
+                    </div>
                 </div>
-                <div class="answers">${answersHTML}</div>
+                <div class="header-stripe"></div>
+                <div class="page-body">${bodyHTML}</div>
+                <div class="page-footer">
+                    <div class="footer-brand">EMOTION ADVENTURE · DUAL ENGINE</div>
+                    <div class="footer-stars">${starsHTML(count, SCENARIOS.length)}</div>
+                </div>
             </div>`;
     });
 
-    document.getElementById('report').innerHTML = coverHTML + studentsHTML;
+    document.getElementById('report').innerHTML = pagesHTML;
     document.getElementById('report').style.display = 'block';
     document.getElementById('loading').style.display = 'none';
     document.getElementById('toolbar-meta').textContent =
-        `共 ${studentsAnswered} 位同學已作答 × 總計 ${totalAnswers} 則回應 × ${dateStr} ${timeStr} 更新`;
+        `共 ${CHARACTERS.length} 位同學 × ${studentsAnswered} 人已作答 × 總計 ${totalAnswers} 則回應 × ${dateStr} ${timeStr}`;
 }
 
 function loadData() {
